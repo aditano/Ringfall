@@ -7,8 +7,8 @@ export interface LightingSystem {
   ambient: THREE.AmbientLight;
   lightShafts: THREE.Group;
   lightShaftsEnabled: boolean;
-  /** Advance optional drifting light-shaft planes. */
-  update: (deltaSeconds: number) => void;
+  /** Advance optional drifting light-shaft planes. Focus keeps the sun on the player. */
+  update: (deltaSeconds: number, focus?: THREE.Vector3) => void;
   setShadowMapSize: (size: number) => void;
   setLightShaftsEnabled: (enabled: boolean) => void;
   dispose: () => void;
@@ -126,7 +126,18 @@ export function setupLighting(
     ambient,
     lightShafts,
     lightShaftsEnabled: shaftsEnabled,
-    update(deltaSeconds: number) {
+    update(deltaSeconds: number, focus?: THREE.Vector3) {
+      if (focus) {
+        sun.position.set(focus.x + 28, 62, focus.z + 14)
+        sun.target.position.set(focus.x, focus.y, focus.z)
+        const cam = sun.shadow.camera
+        cam.left = -46
+        cam.right = 46
+        cam.top = 46
+        cam.bottom = -46
+        cam.far = 180
+        cam.updateProjectionMatrix()
+      }
       elapsed += deltaSeconds;
       if (!shaftsEnabled) return;
       for (const mesh of shaftMeshes) {

@@ -3,8 +3,10 @@ import { forerunnerGold, forerunnerMetal, unscMatte } from '../rendering/Materia
 import type { AudioManager } from '../audio/AudioManager'
 import type { ProjectileManager } from './Projectile'
 import type { EffectsManager } from '../vfx/EffectsManager'
+import type { AABB } from '../world/Environment'
+import { raycastAABBs } from '../world/Raycast'
 
-export type WeaponId = 'br' | 'ar' | 'plasma'
+export type WeaponId = 'br' | 'ar' | 'plasma' | 'prifle'
 
 export type WeaponDef = {
   id: WeaponId
@@ -21,6 +23,8 @@ export type WeaponDef = {
   burst?: number
   burstGap?: number
   hitscan: boolean
+  /** One shot per click. */
+  semi?: boolean
   /** Hold-to-charge plasma overcharge. */
   chargeable?: boolean
   chargeTime?: number
@@ -33,35 +37,34 @@ export type WeaponDef = {
 const DEFS: Record<WeaponId, WeaponDef> = {
   br: {
     id: 'br',
-    name: 'BR-75',
-    magSize: 36,
-    reserve: 144,
-    fireRate: 6.5,
-    damage: 14,
-    bloomPerShot: 0.012,
-    bloomDecay: 4.5,
-    maxBloom: 0.08,
-    recoil: 0.014,
-    reloadTime: 2.05,
-    burst: 3,
-    burstGap: 0.048,
+    name: 'M6D Magnum',
+    magSize: 12,
+    reserve: 60,
+    fireRate: 4.2,
+    damage: 22,
+    bloomPerShot: 0.004,
+    bloomDecay: 6,
+    maxBloom: 0.03,
+    recoil: 0.02,
+    reloadTime: 1.7,
     hitscan: true,
-    adsFov: 52,
+    semi: true,
+    adsFov: 48,
     hipFov: 75,
     muzzleColor: 0xffc48a,
   },
   ar: {
     id: 'ar',
-    name: 'MA40 AR',
-    magSize: 32,
-    reserve: 192,
-    fireRate: 12.5,
-    damage: 9,
-    bloomPerShot: 0.009,
-    bloomDecay: 5.2,
-    maxBloom: 0.11,
-    recoil: 0.01,
-    reloadTime: 2.25,
+    name: 'MA5B Assault Rifle',
+    magSize: 60,
+    reserve: 240,
+    fireRate: 10.5,
+    damage: 7.5,
+    bloomPerShot: 0.011,
+    bloomDecay: 5,
+    maxBloom: 0.12,
+    recoil: 0.009,
+    reloadTime: 2.15,
     hitscan: true,
     adsFov: 58,
     hipFov: 75,
@@ -73,19 +76,37 @@ const DEFS: Record<WeaponId, WeaponDef> = {
     magSize: 100,
     reserve: 0,
     fireRate: 4.2,
-    damage: 16,
-    bloomPerShot: 0.01,
+    damage: 14,
+    bloomPerShot: 0.008,
     bloomDecay: 3.5,
-    maxBloom: 0.06,
-    recoil: 0.009,
-    reloadTime: 1.45,
+    maxBloom: 0.05,
+    recoil: 0.008,
+    reloadTime: 1.35,
     hitscan: false,
     chargeable: true,
-    chargeTime: 1.35,
-    projectileSpeed: 48,
+    chargeTime: 1.15,
+    projectileSpeed: 52,
     adsFov: 60,
     hipFov: 75,
     muzzleColor: 0x5dffb0,
+  },
+  prifle: {
+    id: 'prifle',
+    name: 'Plasma Rifle',
+    magSize: 100,
+    reserve: 0,
+    fireRate: 9,
+    damage: 10,
+    bloomPerShot: 0.006,
+    bloomDecay: 4,
+    maxBloom: 0.05,
+    recoil: 0.006,
+    reloadTime: 1.5,
+    hitscan: false,
+    projectileSpeed: 72,
+    adsFov: 58,
+    hipFov: 75,
+    muzzleColor: 0x3cff9a,
   },
 }
 
@@ -103,7 +124,12 @@ export class WeaponSystem {
     br: { mag: DEFS.br.magSize, reserve: DEFS.br.reserve },
     ar: { mag: DEFS.ar.magSize, reserve: DEFS.ar.reserve },
     plasma: { mag: DEFS.plasma.magSize, reserve: 0 },
+    prifle: { mag: DEFS.prifle.magSize, reserve: 0 },
   }
+
+  /** Combat Evolved carries two weapons. Empty slots stay null until a pickup. */
+  slots: (WeaponId | null)[] = ['br', null]
+  slot = 0
 
   readonly group = new THREE.Group()
 
@@ -123,6 +149,7 @@ export class WeaponSystem {
   private charge = 0
   private triggerLatched = false
 
+  private worldColliders: readonly AABB[] = []
   private readonly models: Record<WeaponId, THREE.Group>
   private readonly muzzleLight: THREE.PointLight
   private readonly raycaster = new THREE.Raycaster()
@@ -156,9 +183,10 @@ export class WeaponSystem {
     this.onHitEnemy = onHitEnemy
 
     this.models = {
-      br: buildBR(),
+      br: buildMagnum(),
       ar: buildAR(),
       plasma: buildPlasma(),
+      prifle: buildPlasmaRifle(),
     }
     for (const m of Object.values(this.models)) {
       m.visible = false
@@ -192,14 +220,21 @@ export class WeaponSystem {
     return this.reloading
   }
 
+  setWorldColliders(colliders: readonly AABB[]): void {
+    this.worldColliders = colliders
+  }
+
   reset(): void {
     this.current = 'br'
+    this.slots = ['br', null]
+    this.slot = 0
     this.ads = false
     this.bloom = 0
     this.ammo = {
       br: { mag: DEFS.br.magSize, reserve: DEFS.br.reserve },
       ar: { mag: DEFS.ar.magSize, reserve: DEFS.ar.reserve },
       plasma: { mag: DEFS.plasma.magSize, reserve: 0 },
+      prifle: { mag: DEFS.prifle.magSize, reserve: 0 },
     }
     this.cancelFireState()
     this.reloading = false
@@ -217,7 +252,9 @@ export class WeaponSystem {
   }
 
   switchWeapon(id: WeaponId): void {
+    if (!this.slots.includes(id)) return
     if (id === this.current) return
+    this.slot = Math.max(0, this.slots.indexOf(id))
     this.cancelFireState()
     this.reloading = false
     this.current = id
@@ -226,17 +263,65 @@ export class WeaponSystem {
     this.bloom = Math.min(this.bloom, DEFS[id].maxBloom * 0.25)
   }
 
+  switchSlot(index: number): void {
+    const id = this.slots[index]
+    if (!id) return
+    this.switchWeapon(id)
+  }
+
+  /**
+   * Pick up a weapon into an empty slot, or replace the one in hand.
+   * Returns the id that was dropped, if any.
+   */
+  acquire(id: WeaponId): WeaponId | null {
+    const def = DEFS[id]
+    const battery = id === 'plasma' || id === 'prifle'
+    if (this.slots.includes(id)) {
+      if (battery) this.ammo[id].mag = def.magSize
+      else this.ammo[id].reserve = Math.min(def.reserve, this.ammo[id].reserve + def.magSize)
+      return null
+    }
+    const empty = this.slots.findIndex((s) => s === null)
+    this.ammo[id].mag = def.magSize
+    this.ammo[id].reserve = battery ? 0 : def.reserve
+    if (empty >= 0) {
+      this.slots[empty] = id
+      this.switchWeapon(id)
+      return null
+    }
+    const dropped = this.current
+    this.slots[this.slot] = id
+    this.cancelFireState()
+    this.reloading = false
+    this.current = id
+    for (const [k, m] of Object.entries(this.models)) m.visible = k === id
+    this.audio.weaponSwap()
+    return dropped
+  }
+
+  resupply(): void {
+    for (const id of this.slots) {
+      if (!id) continue
+      const def = DEFS[id]
+      if (id === 'plasma' || id === 'prifle') this.ammo[id].mag = def.magSize
+      else this.ammo[id].reserve = Math.min(def.reserve, this.ammo[id].reserve + def.magSize)
+    }
+  }
+
   cycleWeapon(dir: 1 | -1): void {
-    const order: WeaponId[] = ['br', 'ar', 'plasma']
-    const i = order.indexOf(this.current)
-    this.switchWeapon(order[(i + dir + order.length) % order.length]!)
+    const owned = this.slots.filter((id): id is WeaponId => id !== null)
+    if (owned.length < 2) return
+    const i = owned.indexOf(this.current)
+    const next = owned[(i + dir + owned.length) % owned.length]!
+    this.switchWeapon(next)
   }
 
   startReload(): void {
     const a = this.ammo[this.current]
     const def = this.def
     if (this.reloading || a.mag >= def.magSize) return
-    if (this.current !== 'plasma' && a.reserve <= 0) return
+    const battery = this.current === 'plasma' || this.current === 'prifle'
+    if (!battery && a.reserve <= 0) return
     this.cancelFireState()
     this.reloading = true
     this.reloadT = def.reloadTime
@@ -286,8 +371,14 @@ export class WeaponSystem {
     }
 
     // Passive plasma heat recovery when not firing/charging.
-    if (this.current === 'plasma' && !this.firing && !this.charging && !this.reloading) {
-      this.ammo.plasma.mag = Math.min(100, this.ammo.plasma.mag + 22 * clamped)
+    if (
+      (this.current === 'plasma' || this.current === 'prifle') &&
+      !this.firing &&
+      !this.charging &&
+      !this.reloading
+    ) {
+      const cell = this.ammo[this.current]
+      cell.mag = Math.min(100, cell.mag + (this.current === 'prifle' ? 14 : 22) * clamped)
     }
 
     this.updateViewModel(clamped, moving, grounded)
@@ -307,6 +398,15 @@ export class WeaponSystem {
           mat.emissiveIntensity = 0.6 + this.charge * 2.4
           core.scale.setScalar(1 + this.charge * 0.5)
         }
+      }
+      return
+    }
+
+    if (def.semi) {
+      if (this.firing && !this.triggerLatched && this.fireCooldown <= 0) {
+        this.triggerLatched = true
+        this.fireOnce()
+        this.fireCooldown = 1 / def.fireRate
       }
       return
     }
@@ -351,7 +451,7 @@ export class WeaponSystem {
     const def = this.def
     const a = this.ammo[this.current]
     this.reloading = false
-    if (this.current === 'plasma') {
+    if (this.current === 'plasma' || this.current === 'prifle') {
       a.mag = def.magSize
       return
     }
@@ -373,7 +473,7 @@ export class WeaponSystem {
   private fireOnce(chargeAmt = 0): void {
     const def = this.def
     const a = this.ammo[this.current]
-    const cost = def.chargeable ? (chargeAmt > 0.85 ? 45 : Math.max(6, Math.floor(8 + chargeAmt * 12))) : 1
+    const cost = def.chargeable ? (chargeAmt > 0.85 ? 38 : chargeAmt > 0.25 ? 12 : 5) : 1
     if (a.mag < cost) {
       this.audio.empty()
       this.startReload()
@@ -382,7 +482,7 @@ export class WeaponSystem {
     a.mag -= cost
 
     const adsScale = THREE.MathUtils.lerp(1, 0.4, this.adsAmount)
-    this.audio.playWeaponFire(this.current, chargeAmt > 0.85)
+    this.audio.playWeaponFire(this.current === 'prifle' ? 'plasma' : this.current, chargeAmt > 0.85)
     this.muzzleFlash = 1
     this.muzzleLight.color.setHex(def.muzzleColor)
     this.bloom = Math.min(def.maxBloom, this.bloom + def.bloomPerShot * adsScale)
@@ -401,10 +501,11 @@ export class WeaponSystem {
       this.raycaster.set(origin, this.spreadDir)
       this.raycaster.far = 220
       const hits = this.raycaster.intersectObjects(this.getEnemyMeshes(), true)
-      let end = origin.clone().addScaledVector(this.spreadDir, 140)
+      const wallT = raycastAABBs(origin, this.spreadDir, 180, this.worldColliders)
+      let end = origin.clone().addScaledVector(this.spreadDir, Math.min(140, wallT))
       let normal = this.spreadDir.clone().multiplyScalar(-1)
 
-      if (hits.length > 0) {
+      if (hits.length > 0 && hits[0]!.distance <= wallT + 0.05) {
         const h = hits[0]!
         end.copy(h.point)
         if (h.face) normal.copy(h.face.normal).transformDirection(h.object.matrixWorld).normalize()
@@ -512,7 +613,7 @@ function mesh(geo: THREE.BufferGeometry, mat: THREE.Material, x = 0, y = 0, z = 
   return m
 }
 
-function buildBR(): THREE.Group {
+function buildMagnum(): THREE.Group {
   const g = new THREE.Group()
   const body = unscMatte('#2f3842')
   const dark = unscMatte('#1a2028')
@@ -557,6 +658,23 @@ function buildAR(): THREE.Group {
     -0.04,
   )
   g.add(led)
+  return g
+}
+
+function buildPlasmaRifle(): THREE.Group {
+  const g = new THREE.Group()
+  const shell = forerunnerMetal(0.45)
+  const glow = new THREE.MeshStandardMaterial({
+    color: 0x39ff9a,
+    emissive: 0x1aff80,
+    emissiveIntensity: 1.3,
+  })
+  g.add(mesh(new THREE.BoxGeometry(0.12, 0.16, 0.72), shell, 0, 0.02, -0.05))
+  g.add(mesh(new THREE.BoxGeometry(0.08, 0.08, 0.42), glow, 0, 0.08, -0.28))
+  const grip = mesh(new THREE.BoxGeometry(0.07, 0.16, 0.08), shell, 0, -0.12, 0.12)
+  grip.rotation.x = 0.3
+  g.add(grip)
+  g.add(mesh(new THREE.BoxGeometry(0.14, 0.08, 0.16), shell, 0, -0.02, 0.28))
   return g
 }
 

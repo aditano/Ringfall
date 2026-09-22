@@ -24,6 +24,7 @@ export class AudioManager {
   private unlocked = false
   private footFlip = false
   private charge: { osc: OscillatorNode; gain: GainNode; lfo: OscillatorNode } | null = null
+  private engine: { osc: OscillatorNode; gain: GainNode } | null = null
   private readonly unlockHandler: () => void
   readonly music: MusicDirector
 
@@ -66,6 +67,42 @@ export class AudioManager {
 
   setMusicIntensity(v: number): void {
     this.music.setIntensity(v)
+  }
+
+  /** Low looping Warthog engine. `amount` is 0..1. */
+  setEngine(amount: number): void {
+    const ctx = this.ensure()
+    const bus = this.sfxBus
+    if (!bus) return
+    if (!this.engine) {
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.type = 'sawtooth'
+      osc.frequency.value = 46
+      gain.gain.value = 0
+      const filter = ctx.createBiquadFilter()
+      filter.type = 'lowpass'
+      filter.frequency.value = 240
+      osc.connect(filter)
+      filter.connect(gain)
+      gain.connect(bus)
+      osc.start()
+      this.engine = { osc, gain }
+    }
+    const level = clamp(amount, 0, 1)
+    this.engine.gain.gain.setTargetAtTime(level * 0.045, ctx.currentTime, 0.08)
+    this.engine.osc.frequency.setTargetAtTime(42 + level * 78, ctx.currentTime, 0.08)
+  }
+
+  chainGun(): void {
+    this.gunshot({
+      noiseDur: 0.04,
+      noiseFreq: 980,
+      bodyFreq: 110,
+      gain: 0.16,
+      metallic: true,
+      toneFreq: 260,
+    })
   }
 
   updateMusic(dt: number): void {
@@ -411,6 +448,14 @@ export class AudioManager {
 
   dispose(): void {
     this.stopCharge()
+    if (this.engine) {
+      try {
+        this.engine.osc.stop()
+      } catch {
+        /* already stopped */
+      }
+      this.engine = null
+    }
     this.music.dispose()
     document.removeEventListener('pointerdown', this.unlockHandler)
     document.removeEventListener('keydown', this.unlockHandler)

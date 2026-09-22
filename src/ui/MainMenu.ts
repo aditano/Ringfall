@@ -177,14 +177,14 @@ export class MainMenu {
     this.root.innerHTML = `
       <div class="rf-menu-bg"></div>
       <div class="rf-menu-panel">
-        <div class="rf-menu-eyebrow">Ringfall // Campaign</div>
+        <div class="rf-menu-eyebrow">Pillar of Autumn</div>
         <h1 class="rf-menu-title">${escapeHtml(title)}</h1>
         <p class="rf-menu-sub">${escapeHtml(subtitle)}</p>
         <div class="rf-menu-actions">
           <button type="button" class="rf-menu-btn rf-play">Campaign</button>
           <button type="button" class="rf-menu-btn rf-ghost rf-settings-open">Settings</button>
         </div>
-        <p class="rf-menu-hint">WASD · Mouse · LMB fire · Esc releases lock</p>
+        <p class="rf-menu-hint">WASD · Mouse · LMB fire · E use · G grenade · F turret</p>
       </div>
     `
 
