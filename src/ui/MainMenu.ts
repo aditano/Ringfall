@@ -4,6 +4,7 @@
  */
 
 import type { GameSettings, UserSettings } from '../settings/GameSettings'
+import { prefersTouchInput } from './TouchControls'
 import { SettingsPanel } from './SettingsPanel'
 
 export interface MainMenuOptions {
@@ -23,7 +24,7 @@ const MENU_CSS = `
 .rf-menu {
   --m-gold: #c4a35a;
   --m-cyan: #7ec8a0;
-  position: fixed;
+  position: absolute;
   inset: 0;
   z-index: 60;
   display: flex;
@@ -126,6 +127,21 @@ const MENU_CSS = `
   from { opacity: 0; transform: translateY(14px); }
   to { opacity: 1; transform: translateY(0); }
 }
+@media (max-width: 700px) {
+  .rf-menu { align-items: flex-end; }
+  .rf-menu-panel {
+    margin: 0;
+    padding: 1.1rem 1rem calc(1.2rem + env(safe-area-inset-bottom));
+    max-width: none;
+    width: 100%;
+  }
+  .rf-menu-title { font-size: 2.5rem; }
+  .rf-menu-btn { width: 100%; min-width: 0; }
+  .rf-menu-bg {
+    background:
+      linear-gradient(180deg, rgba(2, 4, 10, 0.2) 0%, rgba(2, 4, 10, 0.82) 55%);
+  }
+}
 `
 
 function ensureFonts(): void {
@@ -184,7 +200,7 @@ export class MainMenu {
           <button type="button" class="rf-menu-btn rf-play">Campaign</button>
           <button type="button" class="rf-menu-btn rf-ghost rf-settings-open">Settings</button>
         </div>
-        <p class="rf-menu-hint">WASD · Mouse · LMB fire · E use · G grenade · F turret</p>
+        <p class="rf-menu-hint">${escapeHtml(prefersTouchInput() ? 'Stick move · Drag look · Fire · Use · Frag' : 'WASD · Mouse · LMB fire · E use · G grenade · F turret')}</p>
       </div>
     `
 
@@ -244,6 +260,7 @@ export class MainMenu {
   private handlePlay(): void {
     this.hide()
     this.onPlay?.()
+    if (prefersTouchInput()) return
     const target = this.pointerLockTarget
     if (target && typeof target.requestPointerLock === 'function') {
       const result = target.requestPointerLock()

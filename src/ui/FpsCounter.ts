@@ -2,8 +2,8 @@ const STYLE_ID = 'ringfall-fps-styles'
 
 const FPS_CSS = `
 .rf-fps {
-  position: fixed;
-  top: 12px;
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top));
   right: 14px;
   z-index: 55;
   font-family: "Orbitron", "Rajdhani", monospace;

@@ -48,6 +48,19 @@ export class PlayerController {
 
   private coyote = 0
   private jumpBuffer = 0
+  private stickX = 0
+  private stickY = 0
+  private padJump = false
+  private readonly held: MoveState = {
+    forward: false,
+    back: false,
+    left: false,
+    right: false,
+    jump: false,
+    sprint: false,
+    crouch: false,
+  }
+  private readonly lookEuler = new THREE.Euler(0, 0, 0, 'YXZ')
   private readonly wish = new THREE.Vector3()
   private readonly forward = new THREE.Vector3()
   private readonly right = new THREE.Vector3()
@@ -105,13 +118,17 @@ export class PlayerController {
     this.coyote = 0
     this.jumpBuffer = 0
     this.eyeHeight = EYE_HEIGHT
-    this.keys.forward = false
-    this.keys.back = false
-    this.keys.left = false
-    this.keys.right = false
-    this.keys.jump = false
-    this.keys.sprint = false
-    this.keys.crouch = false
+    this.held.forward = false
+    this.held.back = false
+    this.held.left = false
+    this.held.right = false
+    this.held.jump = false
+    this.held.sprint = false
+    this.held.crouch = false
+    this.stickX = 0
+    this.stickY = 0
+    this.padJump = false
+    this.mergeIntent()
     this.hadLock = false
     const cam = this.controls.object
     cam.position.copy(position)
@@ -120,6 +137,49 @@ export class PlayerController {
 
   lock(): void {
     this.controls.lock()
+  }
+
+  /** Rebind pointer lock after the WebGL canvas is replaced. */
+  attachDomElement(domElement: HTMLElement): void {
+    this.controls.disconnect()
+    this.controls.connect(domElement)
+  }
+
+  /**
+   * Touch look. Pixel deltas match PointerLockControls mouse movement.
+   * Pitch is clamped to the control's polar range.
+   */
+  applyLook(deltaX: number, deltaY: number): void {
+    const camera = this.controls.object
+    this.lookEuler.setFromQuaternion(camera.quaternion, 'YXZ')
+    const speed = this.controls.pointerSpeed
+    this.lookEuler.y -= deltaX * 0.002 * speed
+    this.lookEuler.x -= deltaY * 0.002 * speed
+    const pi2 = Math.PI / 2
+    this.lookEuler.x = Math.max(
+      pi2 - this.controls.maxPolarAngle,
+      Math.min(pi2 - this.controls.minPolarAngle, this.lookEuler.x),
+    )
+    camera.quaternion.setFromEuler(this.lookEuler)
+  }
+
+  /** Stick axes in camera space: x strafe, y forward, each -1..1. */
+  setAnalogMove(x: number, y: number): void {
+    const mag = Math.hypot(x, y)
+    if (mag < 0.12) {
+      this.stickX = 0
+      this.stickY = 0
+    } else {
+      this.stickX = x
+      this.stickY = y
+    }
+    this.mergeIntent()
+  }
+
+  setPadJump(down: boolean): void {
+    this.padJump = down
+    if (down) this.jumpBuffer = JUMP_BUFFER
+    this.mergeIntent()
   }
 
   get locked(): boolean {
@@ -177,15 +237,23 @@ export class PlayerController {
     this.right.crossVectors(this.forward, this.worldUp).normalize()
 
     this.wish.set(0, 0, 0)
-    if (this.keys.forward) this.wish.add(this.forward)
-    if (this.keys.back) this.wish.sub(this.forward)
-    if (this.keys.right) this.wish.add(this.right)
-    if (this.keys.left) this.wish.sub(this.right)
+    const stickMag = Math.hypot(this.stickX, this.stickY)
+    let power = 1
+    if (stickMag >= 0.12) {
+      this.wish.addScaledVector(this.forward, this.stickY)
+      this.wish.addScaledVector(this.right, this.stickX)
+      power = Math.min(1, stickMag)
+    } else {
+      if (this.keys.forward) this.wish.add(this.forward)
+      if (this.keys.back) this.wish.sub(this.forward)
+      if (this.keys.right) this.wish.add(this.right)
+      if (this.keys.left) this.wish.sub(this.right)
+    }
     const hasWish = this.wish.lengthSq() > 1e-6
     if (hasWish) this.wish.normalize()
 
     const crouchMul = this.keys.crouch ? CROUCH_MUL : 1
-    const speed = (this.keys.sprint && !this.keys.crouch ? SPRINT : WALK) * crouchMul
+    const speed = (this.keys.sprint && !this.keys.crouch ? SPRINT : WALK) * crouchMul * power
     const accel = this.grounded ? GROUND_ACCEL : AIR_ACCEL
     const maxSpeed = this.grounded ? speed : speed * 1.05
 
@@ -239,35 +307,49 @@ export class PlayerController {
     switch (code) {
       case 'KeyW':
       case 'ArrowUp':
-        this.keys.forward = pressed
+        this.held.forward = pressed
         break
       case 'KeyS':
       case 'ArrowDown':
-        this.keys.back = pressed
+        this.held.back = pressed
         break
       case 'KeyA':
       case 'ArrowLeft':
-        this.keys.left = pressed
+        this.held.left = pressed
         break
       case 'KeyD':
       case 'ArrowRight':
-        this.keys.right = pressed
+        this.held.right = pressed
         break
       case 'Space':
-        this.keys.jump = pressed
+        this.held.jump = pressed
         if (pressed) this.jumpBuffer = JUMP_BUFFER
         e.preventDefault()
         break
       case 'ShiftLeft':
       case 'ShiftRight':
-        this.keys.sprint = pressed
+        this.held.sprint = pressed
         break
       case 'ControlLeft':
       case 'ControlRight':
       case 'KeyC':
-        this.keys.crouch = pressed
+        this.held.crouch = pressed
         break
+      default:
+        return
     }
+    this.mergeIntent()
+  }
+
+  private mergeIntent(): void {
+    const mag = Math.hypot(this.stickX, this.stickY)
+    this.keys.forward = this.held.forward || this.stickY > 0.2
+    this.keys.back = this.held.back || this.stickY < -0.2
+    this.keys.left = this.held.left || this.stickX < -0.2
+    this.keys.right = this.held.right || this.stickX > 0.2
+    this.keys.sprint = this.held.sprint || mag > 0.85
+    this.keys.jump = this.held.jump || this.padJump
+    this.keys.crouch = this.held.crouch
   }
 
   private moveWithCollision(dt: number): void {

@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { createRenderer } from '../rendering/RendererSetup'
+import { createRenderer, type ContextRecovery } from '../rendering/RendererSetup'
 import type { PerformanceSettings } from '../rendering/PerformanceProfile'
 import { createSkyAtmosphere } from '../world/SkyAtmosphere'
 import { setupLighting } from '../world/Lighting'
@@ -30,6 +30,7 @@ function enemyName(kind: EnemyKind): string {
 }
 import { HUD } from '../ui/HUD'
 import { MainMenu } from '../ui/MainMenu'
+import { TouchControls, prefersTouchInput } from '../ui/TouchControls'
 import { FpsCounter } from '../ui/FpsCounter'
 import { HaloCEMenuWorld } from '../ui/HaloCEMenuWorld'
 import { applyEnvironmentMap } from '../rendering/EnvironmentMap'
@@ -75,12 +76,19 @@ export class Game {
   private perf: PerformanceSettings
   private readonly settings = new GameSettings()
   private readonly fpsCounter: FpsCounter
+  private readonly container: HTMLElement
+  private readonly touch: TouchControls
+  private canvasEl: HTMLElement | null = null
+  private startedChrome = false
 
   constructor(container: HTMLElement) {
+    this.container = container
     this.perf = this.settings.toPerformanceSettings()
     this.renderer = createRenderer(container, {
       performance: this.perf,
       autoDowngrade: this.settings.get().autoOptimize,
+      onResize: () => this.syncChrome(),
+      onRecover: (info) => this.onGraphicsRecovered(info),
     })
     if (this.perf.environmentMap) {
       applyEnvironmentMap(this.renderer.renderer, this.renderer.scene)
@@ -159,6 +167,32 @@ export class Game {
     this.ceMenu = new HaloCEMenuWorld(this.renderer.scene)
     this.hud = new HUD({ parent: container })
     this.fpsCounter = new FpsCounter(container)
+    this.touch = new TouchControls(container, {
+      setMove: (x, y) => this.player.setAnalogMove(x, y),
+      addLook: (dx, dy) => this.player.applyLook(dx, dy),
+      setFire: (down) => this.setTouchFire(down),
+      setAim: (down) => {
+        if (!this.campaign.driving) this.weapons.setAds(down)
+      },
+      setJump: (down) => this.player.setPadJump(down),
+      use: () => {
+        if (this.running && !this.menu.isVisible) this.campaign.interact()
+      },
+      reload: () => {
+        if (this.running && !this.menu.isVisible) this.weapons.startReload()
+      },
+      grenade: () => this.throwGrenade(),
+      swap: () => {
+        if (this.running && !this.menu.isVisible) this.weapons.cycleWeapon(1)
+      },
+      turret: () => {
+        if (this.running && !this.menu.isVisible) this.campaign.toggleGun()
+      },
+      pause: () => {
+        if (this.running && this.damage.alive && !this.menu.isVisible) this.pauseToMenu()
+      },
+      onMode: () => this.syncChrome(),
+    })
     this.menu = new MainMenu({
       parent: container,
       title: 'HALO',
@@ -198,6 +232,8 @@ export class Game {
     })
 
     this.bindInput()
+    this.startedChrome = true
+    this.syncChrome()
     const kickMusic = () => {
       if (this.menuMusicStarted) return
       this.menuMusicStarted = true
@@ -238,6 +274,7 @@ export class Game {
     this.campaign.setTrigger(false)
     this.audio.setEngine(0)
     this.hud.setPointerLockHint(false)
+    this.touch.setGameplay(false)
     this.enterMenuWorld()
     this.menu.show()
     this.hud.hide()
@@ -297,31 +334,14 @@ export class Game {
   }
 
   private bindInput() {
-    const el = this.renderer.renderer.domElement
-    el.addEventListener('mousedown', (e) => {
-      if (!this.running || !this.damage.alive) return
-      if (!this.player.locked) {
-        this.player.lock()
-        return
-      }
-      if (e.button === 0) {
-        this.weapons.setFiring(!this.campaign.blocksWeapons)
-        this.campaign.setTrigger(true)
-      }
-      if (e.button === 2 && !this.campaign.driving) this.weapons.setAds(true)
-    })
+    this.bindCanvas(this.renderer.renderer.domElement)
     window.addEventListener('mouseup', (e) => {
+      if (this.touch.isEnabled) return
       if (e.button === 0) {
         this.weapons.setFiring(false)
         this.campaign.setTrigger(false)
       }
       if (e.button === 2) this.weapons.setAds(false)
-    })
-    el.addEventListener('contextmenu', (e) => e.preventDefault())
-    el.addEventListener('click', () => {
-      if (this.running && this.damage.alive && !this.player.locked && !this.menu.isVisible) {
-        this.player.lock()
-      }
     })
     window.addEventListener('keydown', (e) => {
       if (!this.running || this.menu.isVisible) return
@@ -345,14 +365,94 @@ export class Game {
         this.campaign.throwGrenade(this.player.position, this.lookDir)
       }
     })
-    el.addEventListener(
-      'wheel',
-      (e) => {
-        if (!this.player.locked) return
-        this.weapons.cycleWeapon(e.deltaY > 0 ? 1 : -1)
-      },
-      { passive: true },
-    )
+  }
+
+  private bindCanvas(el: HTMLElement): void {
+    if (this.canvasEl) {
+      this.canvasEl.removeEventListener('mousedown', this.onCanvasMouseDown)
+      this.canvasEl.removeEventListener('contextmenu', this.onCanvasMenu)
+      this.canvasEl.removeEventListener('click', this.onCanvasClick)
+      this.canvasEl.removeEventListener('wheel', this.onCanvasWheel)
+    }
+    this.canvasEl = el
+    el.addEventListener('mousedown', this.onCanvasMouseDown)
+    el.addEventListener('contextmenu', this.onCanvasMenu)
+    el.addEventListener('click', this.onCanvasClick)
+    el.addEventListener('wheel', this.onCanvasWheel, { passive: true })
+    this.player.attachDomElement(el)
+    this.menu.setPointerLockTarget(el)
+  }
+
+  private readonly onCanvasMouseDown = (e: MouseEvent) => {
+    if (this.touch.isEnabled) return
+    if (!this.running || !this.damage.alive) return
+    if (!this.player.locked) {
+      this.player.lock()
+      return
+    }
+    if (e.button === 0) {
+      this.weapons.setFiring(!this.campaign.blocksWeapons)
+      this.campaign.setTrigger(true)
+    }
+    if (e.button === 2 && !this.campaign.driving) this.weapons.setAds(true)
+  }
+
+  private readonly onCanvasMenu = (e: Event) => {
+    e.preventDefault()
+  }
+
+  private readonly onCanvasClick = () => {
+    if (this.touch.isEnabled) return
+    if (this.running && this.damage.alive && !this.player.locked && !this.menu.isVisible) {
+      this.player.lock()
+    }
+  }
+
+  private readonly onCanvasWheel = (e: WheelEvent) => {
+    if (!this.player.locked) return
+    this.weapons.cycleWeapon(e.deltaY > 0 ? 1 : -1)
+  }
+
+  private setTouchFire(down: boolean): void {
+    if (!this.running || !this.damage.alive || this.menu.isVisible) {
+      this.weapons.setFiring(false)
+      this.campaign.setTrigger(false)
+      return
+    }
+    const fire = down && !this.campaign.blocksWeapons
+    this.weapons.setFiring(fire)
+    this.campaign.setTrigger(down)
+  }
+
+  private throwGrenade(): void {
+    if (!this.running || this.menu.isVisible) return
+    this.player.getLookDirection(this.lookDir)
+    this.campaign.throwGrenade(this.player.position, this.lookDir)
+  }
+
+  private syncChrome(): void {
+    if (!this.startedChrome) return
+    const narrow = window.matchMedia('(max-width: 900px)').matches
+    const touch = prefersTouchInput() || this.touch.isEnabled
+    if (touch) this.touch.setEnabled(true)
+    this.hud.setCompact(narrow)
+    this.hud.setTouchLayout(this.touch.isEnabled)
+    this.container.classList.toggle('rf-portrait', narrow && window.innerHeight > window.innerWidth)
+  }
+
+  private onGraphicsRecovered(info: ContextRecovery): void {
+    this.perf = info.performance
+    try {
+      this.lighting.setShadowMapSize(info.performance.shadowMapSize)
+      this.lighting.setLightShaftsEnabled(info.performance.lightShafts)
+    } catch (err) {
+      console.error('Lighting reset after context recovery failed', err)
+    }
+    this.bindCanvas(info.canvas)
+    if (this.running && !this.menu.isVisible) {
+      this.renderer.setPointerCapture(true)
+      this.lighting.lightShafts.visible = info.performance.lightShafts
+    }
   }
 
   start() {
@@ -367,7 +467,12 @@ export class Game {
     this.campaign.begin()
     this.audio.setMusicMode('explore')
     this.audio.setMusicIntensity(0.15)
-    this.player.lock()
+    this.touch.setGameplay(true)
+    if (this.touch.isEnabled) {
+      this.hud.setHint('Stick move · Drag look · Fire · Use · Frag')
+    } else {
+      this.player.lock()
+    }
     this.renderer.camera.position.copy(this.player.position)
     this.renderer.camera.rotation.set(0, this.spawnYaw, 0)
   }
@@ -430,6 +535,7 @@ export class Game {
       this.tick(now)
     } catch (err) {
       console.error(err)
+      this.renderer.noteRenderFailure(err)
       this.last = performance.now()
     } finally {
       requestAnimationFrame((t) => this.frame(t))
@@ -437,10 +543,16 @@ export class Game {
   }
 
   private tick(now: number) {
-    if (this.pageHidden || this.renderer.isContextLost()) {
+    if (this.pageHidden) {
       this.last = now
       return
     }
+    if (!this.renderer.serviceContext()) {
+      this.container.classList.add('rf-gl-lost')
+      this.last = now
+      return
+    }
+    this.container.classList.remove('rf-gl-lost')
 
     const dt = Math.min(0.05, (now - this.last) / 1000)
     this.last = now
@@ -479,11 +591,12 @@ export class Game {
           this.player.keys.left ||
           this.player.keys.right)
 
-      this.hud.setPointerLockHint(!this.player.locked)
+      this.hud.setPointerLockHint(!this.touch.isEnabled && !this.player.locked)
       this.weapons.group.visible = !seated
       if (this.campaign.blocksWeapons) this.weapons.setFiring(false)
 
-      if (this.player.locked && !this.campaign.blocksWeapons) {
+      const aiming = this.player.locked || this.touch.isEnabled
+      if (aiming && !this.campaign.blocksWeapons) {
         this.weapons.update(dt, moving, this.player.grounded)
         this.updateCrosshairTarget()
       } else {
@@ -497,7 +610,7 @@ export class Game {
       this.hearWorldProjectiles()
       this.resolveProjectileHits()
       this.effects.update(dt)
-      if (this.player.locked) {
+      if (this.player.locked || this.touch.isEnabled) {
         this.effects.applyShakeToCamera(this.renderer.camera, dt)
       }
       this.hud.update(dt)
