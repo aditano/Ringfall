@@ -34,6 +34,7 @@ export function setupLighting(
   const arenaRadius = options.arenaRadius ?? 80;
   const enableShafts = options.lightShafts !== false;
   const shadowSize = options.shadowMapSize ?? 2048;
+  const shadowReach = Math.min(56, Math.max(36, arenaRadius * 0.6));
 
   // Balanced key — readable outdoors without blowing out mids.
   const sun = new THREE.DirectionalLight(0xffe8cc, 1.65);
@@ -43,13 +44,14 @@ export function setupLighting(
   sun.shadow.bias = -0.00012;
   sun.shadow.normalBias = 0.04;
   sun.shadow.radius = 2.5;
-  const extent = arenaRadius * 1.15;
+  // Fixed frustum. Rebuilding this matrix every frame dirties the shadow pass
+  // even when the covered area has not changed.
   sun.shadow.camera.near = 1;
-  sun.shadow.camera.far = extent * 3;
-  sun.shadow.camera.left = -extent;
-  sun.shadow.camera.right = extent;
-  sun.shadow.camera.top = extent;
-  sun.shadow.camera.bottom = -extent;
+  sun.shadow.camera.far = 180;
+  sun.shadow.camera.left = -shadowReach;
+  sun.shadow.camera.right = shadowReach;
+  sun.shadow.camera.top = shadowReach;
+  sun.shadow.camera.bottom = -shadowReach;
   sun.shadow.camera.updateProjectionMatrix();
   scene.add(sun);
   scene.add(sun.target);
@@ -81,6 +83,7 @@ export function setupLighting(
       opacity: 0.055,
       depthWrite: false,
       side: THREE.DoubleSide,
+      forceSinglePass: true,
       blending: THREE.AdditiveBlending,
     });
 
@@ -106,6 +109,8 @@ export function setupLighting(
 
   let elapsed = 0;
   let shaftsEnabled = enableShafts;
+  let shadowFocusX = Number.NaN;
+  let shadowFocusZ = Number.NaN;
 
   const setShadowMapSize = (size: number) => {
     sun.shadow.map?.dispose();
@@ -127,16 +132,16 @@ export function setupLighting(
     lightShafts,
     lightShaftsEnabled: shaftsEnabled,
     update(deltaSeconds: number, focus?: THREE.Vector3) {
-      if (focus) {
-        sun.position.set(focus.x + 28, 62, focus.z + 14)
-        sun.target.position.set(focus.x, focus.y, focus.z)
-        const cam = sun.shadow.camera
-        cam.left = -46
-        cam.right = 46
-        cam.top = 46
-        cam.bottom = -46
-        cam.far = 180
-        cam.updateProjectionMatrix()
+      if (focus && sun.castShadow) {
+        const dx = focus.x - shadowFocusX
+        const dz = focus.z - shadowFocusZ
+        if (!Number.isFinite(shadowFocusX) || dx * dx + dz * dz > 36) {
+          shadowFocusX = focus.x
+          shadowFocusZ = focus.z
+          sun.position.set(focus.x + 28, 62, focus.z + 14)
+          sun.target.position.set(focus.x, focus.y, focus.z)
+          sun.target.updateMatrixWorld()
+        }
       }
       elapsed += deltaSeconds;
       if (!shaftsEnabled) return;

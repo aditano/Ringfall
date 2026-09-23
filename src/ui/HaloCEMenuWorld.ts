@@ -57,6 +57,7 @@ export class HaloCEMenuWorld {
           depthWrite: false,
           blending: THREE.AdditiveBlending,
           side: THREE.DoubleSide,
+          forceSinglePass: true,
         }),
       )
       neb.position.set((i - 1) * 25, (i - 1) * 8, -60 - i * 10)
@@ -104,8 +105,11 @@ export class HaloCEMenuWorld {
       14 + Math.sin(t * 0.4) * 2,
     )
     camera.lookAt(this.ringPivot.position.x, this.ringPivot.position.y + 1, this.ringPivot.position.z)
-    camera.fov = THREE.MathUtils.damp(camera.fov, 48, 4, dt)
-    camera.updateProjectionMatrix()
+    const nextFov = THREE.MathUtils.damp(camera.fov, 48, 4, dt)
+    if (Math.abs(camera.fov - nextFov) > 0.05) {
+      camera.fov = nextFov
+      camera.updateProjectionMatrix()
+    }
   }
 
   dispose(): void {

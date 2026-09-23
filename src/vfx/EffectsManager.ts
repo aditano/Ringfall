@@ -130,6 +130,7 @@ export class EffectsManager {
       polygonOffset: true,
       polygonOffsetFactor: -2,
       side: THREE.DoubleSide,
+      forceSinglePass: true,
     })
 
     this.rippleMat = new THREE.MeshBasicMaterial({
@@ -139,6 +140,7 @@ export class EffectsManager {
       depthWrite: false,
       blending: THREE.AdditiveBlending,
       side: THREE.DoubleSide,
+      forceSinglePass: true,
     })
     this.rippleGeo = new THREE.RingGeometry(0.05, 0.2, 16)
 
@@ -294,7 +296,6 @@ export class EffectsManager {
     positions.setXYZ(0, opts.origin.x, opts.origin.y, opts.origin.z)
     positions.setXYZ(1, opts.end.x, opts.end.y, opts.end.z)
     positions.needsUpdate = true
-    geo.computeBoundingSphere()
 
     const mat = tracer.line.material as THREE.LineBasicMaterial
     mat.color.setHex(color)

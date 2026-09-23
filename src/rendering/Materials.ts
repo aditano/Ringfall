@@ -196,7 +196,13 @@ export function createUnscMatte(options?: {
   return mat;
 }
 
-/** Translucent cyan Hardlight / energy glass. */
+/**
+ * Translucent cyan Hardlight / energy glass.
+ * Transmission is intentionally off: a transmission material re-renders the
+ * whole scene every frame, and DoubleSide + transparent bumps material.version
+ * twice per draw (Three recompiles / rebinds the program). That stalled combat
+ * whenever an elite shield was on screen.
+ */
 export function createEnergyGlass(options?: {
   opacity?: number;
   emissiveIntensity?: number;
@@ -209,7 +215,7 @@ export function createEnergyGlass(options?: {
     color: HaloPalette.energyGlass,
     roughness: 0.06,
     metalness: 0.05,
-    transmission: 0.78,
+    transmission: 0,
     thickness: 0.45,
     ior: 1.35,
     transparent: true,
@@ -220,6 +226,7 @@ export function createEnergyGlass(options?: {
     clearcoat: 1,
     clearcoatRoughness: 0.08,
     side: THREE.DoubleSide,
+    forceSinglePass: true,
     depthWrite: false,
   });
   cache.set(key, mat);
@@ -243,6 +250,7 @@ export function createEnergyBridge(options?: {
     transparent: true,
     opacity: 0.82,
     side: THREE.DoubleSide,
+    forceSinglePass: true,
   });
   cache.set(key, mat);
   return mat;

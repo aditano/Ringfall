@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { enemyArmor, energyGlass, forerunnerMetal } from '../rendering/Materials'
+import { enemyArmor, forerunnerMetal } from '../rendering/Materials'
 import type { SpawnPoint } from '../world/Environment'
 import type { EffectsManager } from '../vfx/EffectsManager'
 import type { ProjectileManager } from '../weapons/Projectile'
@@ -32,6 +32,61 @@ const _tmpV = new THREE.Vector3()
 const _tmpV2 = new THREE.Vector3()
 const _tmpQ = new THREE.Quaternion()
 const _up = new THREE.Vector3(0, 1, 0)
+const _aimLift = new THREE.Vector3(0, 1.2, 0)
+
+const geoCache = new Map<string, THREE.BufferGeometry>()
+
+function cachedGeo(key: string, create: () => THREE.BufferGeometry): THREE.BufferGeometry {
+  let geo = geoCache.get(key)
+  if (!geo) {
+    geo = create()
+    geoCache.set(key, geo)
+  }
+  return geo
+}
+
+const BoxGeo = THREE.BoxGeometry
+const SphereGeo = THREE.SphereGeometry
+const ConeGeo = THREE.ConeGeometry
+const CircleGeo = THREE.CircleGeometry
+
+function box(w: number, h: number, d: number): THREE.BufferGeometry {
+  return cachedGeo(`box:${w}:${h}:${d}`, () => new BoxGeo(w, h, d))
+}
+
+function sphere(r: number, wSeg: number, hSeg: number): THREE.BufferGeometry {
+  return cachedGeo(`sph:${r}:${wSeg}:${hSeg}`, () => new SphereGeo(r, wSeg, hSeg))
+}
+
+function cone(r: number, h: number, seg: number): THREE.BufferGeometry {
+  return cachedGeo(`cone:${r}:${h}:${seg}`, () => new ConeGeo(r, h, seg))
+}
+
+function circle(r: number, seg: number): THREE.BufferGeometry {
+  return cachedGeo(`circ:${r}:${seg}`, () => new CircleGeo(r, seg))
+}
+
+function own<T extends THREE.Material>(mat: T): T {
+  mat.userData.owned = true
+  return mat
+}
+
+/** Translucent shield without transmission. Transmission re-renders the whole scene. */
+function shieldMaterial(color: number): THREE.MeshStandardMaterial {
+  return own(
+    new THREE.MeshStandardMaterial({
+      color,
+      emissive: new THREE.Color(color),
+      emissiveIntensity: 0.45,
+      roughness: 0.25,
+      metalness: 0.05,
+      transparent: true,
+      opacity: 0.28,
+      depthWrite: false,
+      side: THREE.FrontSide,
+    }),
+  )
+}
 
 /**
  * Procedural Covenant-inspired combatant — angular armor, colored energy shields,
@@ -63,7 +118,9 @@ export class Enemy {
   private readonly bodyMat: THREE.MeshStandardMaterial
   private readonly accentMat: THREE.MeshStandardMaterial
   private shieldMesh!: THREE.Mesh
-  private readonly shieldMat: THREE.MeshPhysicalMaterial
+  private readonly shieldMat: THREE.MeshStandardMaterial
+  /** Far from the player: hidden and not ticked, so leftover encounters don't pile up. */
+  simulated = true
   private weaponMuzzle!: THREE.Object3D
   private readonly home: THREE.Vector3
   private readonly patrolPoints: THREE.Vector3[] = []
@@ -110,8 +167,8 @@ export class Enemy {
       this.projectileDamage = 14
       this.headshotMultiplier = 2.2
       this.coverChance = 0.45
-      this.bodyMat = enemyArmor('blue')
-      this.accentMat = enemyArmor('blue').clone()
+      this.bodyMat = own(enemyArmor('blue'))
+      this.accentMat = own(this.bodyMat.clone())
       this.accentMat.color.setHex(0x3ec8ff)
       this.accentMat.emissive = new THREE.Color(0x33ffaa)
       this.accentMat.emissiveIntensity = 0.55
@@ -130,10 +187,10 @@ export class Enemy {
       this.projectileDamage = 11
       this.headshotMultiplier = 1.8
       this.coverChance = 0.1
-      this.bodyMat = enemyArmor('red')
+      this.bodyMat = own(enemyArmor('red'))
       this.bodyMat.color.setHex(0x8a7048)
       this.bodyMat.emissive.setHex(0x3a2a18)
-      this.accentMat = enemyArmor('blue').clone()
+      this.accentMat = own(enemyArmor('blue'))
       this.accentMat.color.setHex(0x49d6ff)
       this.accentMat.emissive = new THREE.Color(0x49d6ff)
       this.accentMat.emissiveIntensity = 0.8
@@ -150,20 +207,16 @@ export class Enemy {
       this.projectileDamage = 8
       this.headshotMultiplier = 2.4
       this.coverChance = 0.2
-      this.bodyMat = enemyArmor('red')
+      this.bodyMat = own(enemyArmor('red'))
       this.bodyMat.color.setHex(0xd4652a)
       this.bodyMat.emissive.setHex(0x5a2208)
-      this.accentMat = enemyArmor('blue').clone()
+      this.accentMat = own(enemyArmor('blue'))
       this.accentMat.color.setHex(0x3ec6ff)
       this.accentMat.emissive = new THREE.Color(0x1a8ec8)
       this.accentMat.emissiveIntensity = 0.7
     }
 
-    this.shieldMat = energyGlass().clone()
-    this.shieldMat.color.setHex(isElite ? 0x33ffaa : 0xffaa44)
-    this.shieldMat.emissive = new THREE.Color(isElite ? 0x33ffaa : 0xffaa44)
-    this.shieldMat.emissiveIntensity = 0.45
-    this.shieldMat.opacity = 0.28
+    this.shieldMat = shieldMaterial(isElite ? 0x33ffaa : 0xffaa44)
 
     if (isJackal) this.buildJackal()
     else this.buildMesh(isElite)
@@ -340,11 +393,27 @@ export class Enemy {
     this.applyLocomotion(dt)
   }
 
+  /** Hide and skip AI when the player has left this fight behind. */
+  setSimulated(on: boolean): void {
+    if (this.simulated === on) return
+    this.simulated = on
+    if (!on) {
+      this.group.visible = false
+      return
+    }
+    this.group.visible = this.state !== EnemyState.Dead
+  }
+
   dispose(): void {
+    const seen = new Set<THREE.Material>()
     this.group.traverse((obj) => {
       const mesh = obj as THREE.Mesh
-      if (mesh.isMesh) {
-        mesh.geometry?.dispose()
+      if (!mesh.isMesh || !mesh.material) return
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+      for (const mat of mats) {
+        if (!mat.userData.owned || seen.has(mat)) continue
+        seen.add(mat)
+        mat.dispose()
       }
     })
     this.group.removeFromParent()
@@ -362,7 +431,7 @@ export class Enemy {
     const torsoW = isElite ? 0.7 : 0.55
     const torsoD = isElite ? 0.4 : 0.32
 
-    const torso = new THREE.Mesh(new THREE.BoxGeometry(torsoW, torsoH, torsoD), this.bodyMat)
+    const torso = new THREE.Mesh(box(torsoW, torsoH, torsoD), this.bodyMat)
     torso.name = 'torso'
     torso.position.y = isElite ? 1.15 : 0.95
     torso.castShadow = true
@@ -370,7 +439,7 @@ export class Enemy {
     this.group.add(torso)
 
     const plate = new THREE.Mesh(
-      new THREE.BoxGeometry(torsoW * 1.15, torsoH * 0.45, torsoD * 0.35),
+      box(torsoW * 1.15, torsoH * 0.45, torsoD * 0.35),
       this.accentMat,
     )
     plate.position.set(0, torso.position.y + 0.12, torsoD * 0.45)
@@ -379,7 +448,7 @@ export class Enemy {
     this.group.add(plate)
 
     for (const side of [-1, 1]) {
-      const pauldron = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.22, 0.35), this.bodyMat)
+      const pauldron = new THREE.Mesh(box(0.28, 0.22, 0.35), this.bodyMat)
       pauldron.position.set(side * (torsoW * 0.55), torso.position.y + torsoH * 0.28, 0)
       pauldron.rotation.z = side * -0.35
       tag(pauldron)
@@ -388,7 +457,7 @@ export class Enemy {
 
     const headSize = isElite ? 0.32 : 0.26
     const head = new THREE.Mesh(
-      new THREE.BoxGeometry(headSize, headSize * 1.1, headSize * 1.05),
+      box(headSize, headSize * 1.1, headSize * 1.05),
       forerunnerMetal(0.25),
     )
     head.name = 'head'
@@ -398,38 +467,40 @@ export class Enemy {
     this.group.add(head)
 
     const visor = new THREE.Mesh(
-      new THREE.BoxGeometry(headSize * 0.85, headSize * 0.28, 0.06),
-      new THREE.MeshStandardMaterial({
-        color: isElite ? 0x66ffcc : 0xffaa33,
-        emissive: isElite ? 0x33ffaa : 0xff8800,
-        emissiveIntensity: 1.4,
-        roughness: 0.2,
-        metalness: 0.3,
-      }),
+      box(headSize * 0.85, headSize * 0.28, 0.06),
+      own(
+        new THREE.MeshStandardMaterial({
+          color: isElite ? 0x66ffcc : 0xffaa33,
+          emissive: isElite ? 0x33ffaa : 0xff8800,
+          emissiveIntensity: 1.4,
+          roughness: 0.2,
+          metalness: 0.3,
+        }),
+      ),
     )
     visor.position.set(0, head.position.y + 0.02, headSize * 0.52)
     tag(visor, true)
     this.group.add(visor)
 
     if (isElite) {
-      const crest = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.35, 4), this.accentMat)
+      const crest = new THREE.Mesh(cone(0.12, 0.35, 4), this.accentMat)
       crest.position.set(0, head.position.y + 0.28, -0.05)
       crest.rotation.x = 0.4
       tag(crest)
       this.group.add(crest)
       for (const side of [-1, 1] as const) {
-        const mandible = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.26, 0.07), this.accentMat)
+        const mandible = new THREE.Mesh(box(0.05, 0.26, 0.07), this.accentMat)
         mandible.position.set(side * 0.14, head.position.y - 0.12, 0.16)
         mandible.rotation.z = side * 0.4
         tag(mandible)
         this.group.add(mandible)
       }
     } else {
-      const tank = new THREE.Mesh(new THREE.SphereGeometry(0.22, 8, 6), this.accentMat)
+      const tank = new THREE.Mesh(sphere(0.22, 8, 6), this.accentMat)
       tank.position.set(0, torso.position.y + 0.05, -0.28)
       tag(tank)
       this.group.add(tank)
-      const beak = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.2, 4), this.accentMat)
+      const beak = new THREE.Mesh(cone(0.09, 0.2, 4), this.accentMat)
       beak.rotation.x = Math.PI / 2
       beak.position.set(0, head.position.y - 0.02, 0.22)
       tag(beak, true)
@@ -437,23 +508,23 @@ export class Enemy {
     }
 
     for (const side of [-1, 1]) {
-      const upper = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.45, 0.14), this.bodyMat)
+      const upper = new THREE.Mesh(box(0.14, 0.45, 0.14), this.bodyMat)
       upper.position.set(side * (torsoW * 0.62), torso.position.y + 0.05, 0)
       upper.rotation.z = side * 0.15
       tag(upper)
       this.group.add(upper)
 
-      const lower = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.4, 0.12), this.bodyMat)
+      const lower = new THREE.Mesh(box(0.12, 0.4, 0.12), this.bodyMat)
       lower.position.set(side * (torsoW * 0.68), torso.position.y - 0.35, 0.08)
       tag(lower)
       this.group.add(lower)
 
-      const thigh = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.45, 0.2), this.bodyMat)
+      const thigh = new THREE.Mesh(box(0.18, 0.45, 0.2), this.bodyMat)
       thigh.position.set(side * 0.16, 0.55, 0)
       tag(thigh)
       this.group.add(thigh)
 
-      const shin = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.4, 0.18), this.bodyMat)
+      const shin = new THREE.Mesh(box(0.16, 0.4, 0.18), this.bodyMat)
       shin.position.set(side * 0.16, 0.2, 0.02)
       tag(shin)
       this.group.add(shin)
@@ -462,7 +533,7 @@ export class Enemy {
     const weapon = new THREE.Group()
     weapon.position.set(torsoW * 0.55, torso.position.y - 0.05, 0.35)
     const receiver = new THREE.Mesh(
-      new THREE.BoxGeometry(0.12, 0.14, 0.45),
+      box(0.12, 0.14, 0.45),
       forerunnerMetal(0.8),
     )
     weapon.add(receiver)
@@ -474,7 +545,7 @@ export class Enemy {
     this.weaponMuzzle = muzzle
 
     this.shieldMesh = new THREE.Mesh(
-      new THREE.SphereGeometry(isElite ? 1.15 : 0.95, 16, 12),
+      sphere(isElite ? 1.15 : 0.95, 16, 12),
       this.shieldMat,
     )
     this.shieldMesh.name = 'energyShield'
@@ -491,42 +562,45 @@ export class Enemy {
       if (head) obj.userData.isHead = true
       this.meshes.push(obj)
     }
-    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.85, 0.28), this.bodyMat)
+    const torso = new THREE.Mesh(box(0.38, 0.85, 0.28), this.bodyMat)
     torso.position.y = 1.15
     torso.castShadow = true
     tag(torso)
     this.group.add(torso)
-    const head = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.42, 0.22), this.bodyMat)
+    const head = new THREE.Mesh(box(0.22, 0.42, 0.22), this.bodyMat)
     head.position.y = 1.85
     head.castShadow = true
     tag(head, true)
     this.group.add(head)
-    const beak = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.22, 4), this.accentMat)
+    const beak = new THREE.Mesh(cone(0.07, 0.22, 4), this.accentMat)
     beak.rotation.x = Math.PI / 2
     beak.position.set(0, 1.78, 0.16)
     tag(beak, true)
     this.group.add(beak)
     for (const side of [-1, 1]) {
-      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.7, 0.1), this.bodyMat)
+      const leg = new THREE.Mesh(box(0.1, 0.7, 0.1), this.bodyMat)
       leg.position.set(side * 0.12, 0.4, 0)
       tag(leg)
       this.group.add(leg)
     }
-    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.5, 0.1), this.bodyMat)
+    const arm = new THREE.Mesh(box(0.1, 0.5, 0.1), this.bodyMat)
     arm.position.set(0.28, 1.2, 0.15)
     tag(arm)
     this.group.add(arm)
     const shield = new THREE.Mesh(
-      new THREE.CircleGeometry(0.48, 16),
-      new THREE.MeshStandardMaterial({
-        color: 0x9ae9ff,
-        emissive: 0x49d6ff,
-        emissiveIntensity: 1.1,
-        transparent: true,
-        opacity: 0.45,
-        side: THREE.DoubleSide,
-        depthWrite: false,
-      }),
+      circle(0.48, 16),
+      own(
+        new THREE.MeshStandardMaterial({
+          color: 0x9ae9ff,
+          emissive: 0x49d6ff,
+          emissiveIntensity: 1.1,
+          transparent: true,
+          opacity: 0.45,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+          forceSinglePass: true,
+        }),
+      ),
     )
     shield.position.set(0.15, 1.25, 0.42)
     tag(shield)
@@ -535,14 +609,14 @@ export class Enemy {
 
     const weapon = new THREE.Group()
     weapon.position.set(-0.22, 1.15, 0.32)
-    weapon.add(new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.1, 0.4), forerunnerMetal(0.4)))
+    weapon.add(new THREE.Mesh(box(0.08, 0.1, 0.4), forerunnerMetal(0.4)))
     const muzzle = new THREE.Object3D()
     muzzle.position.set(0, 0, 0.24)
     weapon.add(muzzle)
     this.group.add(weapon)
     this.weaponMuzzle = muzzle
 
-    this.shieldMesh = new THREE.Mesh(new THREE.SphereGeometry(0.2, 6, 4), this.shieldMat)
+    this.shieldMesh = new THREE.Mesh(sphere(0.2, 6, 4), this.shieldMat)
     this.shieldMesh.visible = false
     this.group.add(this.shieldMesh)
   }
@@ -648,7 +722,7 @@ export class Enemy {
 
   private firePlasma(playerPos: THREE.Vector3, projectiles: ProjectileManager): void {
     const origin = this.weaponMuzzle.getWorldPosition(_tmpV)
-    const dir = _tmpV2.copy(playerPos).add(new THREE.Vector3(0, 1.2, 0)).sub(origin).normalize()
+    const dir = _tmpV2.copy(playerPos).add(_aimLift).sub(origin).normalize()
     const spread = this.kind === 'elite' ? 0.02 : 0.045
     dir.x += (Math.random() - 0.5) * spread
     dir.y += (Math.random() - 0.5) * spread * 0.6
@@ -656,7 +730,7 @@ export class Enemy {
     dir.normalize()
 
     const color = this.kind === 'elite' ? 0x44ffaa : this.kind === 'jackal' ? 0x66d8ff : 0xc44dff
-    projectiles.spawn(origin.clone(), dir, this.projectileSpeed, {
+    projectiles.spawn(origin, dir, this.projectileSpeed, {
       damage: this.projectileDamage,
       fromPlayer: false,
       color,
@@ -744,6 +818,11 @@ export class Enemy {
     this.shieldMesh.visible = false
     this.enterState(EnemyState.Dying)
     this.deathT = 0
+    if (!this.simulated) {
+      this.state = EnemyState.Dead
+      this.group.visible = false
+      return
+    }
     this.deathSpin = (Math.random() > 0.5 ? 1 : -1) * (1.8 + Math.random())
     this.velocity.set((Math.random() - 0.5) * 3, 2.5, (Math.random() - 0.5) * 3)
     effects.spawnExplosion(

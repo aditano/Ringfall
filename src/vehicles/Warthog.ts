@@ -119,9 +119,7 @@ export class Warthog {
     this.syncRotation(pitch, -roll)
 
     if (gunYaw !== null) {
-      let rel = gunYaw - this.yaw
-      while (rel > Math.PI) rel -= Math.PI * 2
-      while (rel < -Math.PI) rel += Math.PI * 2
+      const rel = wrapAngle(gunYaw - this.yaw)
       this.turret.rotation.y = THREE.MathUtils.damp(this.turret.rotation.y, rel, 10, dt)
     }
   }
@@ -131,9 +129,7 @@ export class Warthog {
     this.scratch.y = 0
     if (this.scratch.lengthSq() < 0.01) return
     const worldYaw = Math.atan2(this.scratch.x, this.scratch.z)
-    let rel = worldYaw + this.yaw
-    while (rel > Math.PI) rel -= Math.PI * 2
-    while (rel < -Math.PI) rel += Math.PI * 2
+    const rel = wrapAngle(worldYaw + this.yaw)
     this.turret.rotation.y = THREE.MathUtils.damp(this.turret.rotation.y, rel, 7, dt)
   }
 
@@ -239,4 +235,14 @@ export class Warthog {
       this.group.add(lamp)
     }
   }
+}
+
+/** Finite angle wrap. A `while (rel > PI)` loop never finishes if rel is Infinity. */
+function wrapAngle(rel: number): number {
+  if (!Number.isFinite(rel)) return 0
+  const tau = Math.PI * 2
+  rel = rel % tau
+  if (rel > Math.PI) rel -= tau
+  else if (rel < -Math.PI) rel += tau
+  return rel
 }

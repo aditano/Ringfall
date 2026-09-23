@@ -67,7 +67,7 @@ export class Game {
   private readonly seatPos = new THREE.Vector3()
   private spawnYaw = Math.PI
   private menuMusicStarted = false
-  private readonly heardProjectiles = new WeakSet<object>()
+  private pageHidden = false
   private readonly aimRay = new THREE.Raycaster()
   private finishHold = 0
   private crosshairTick = 0
@@ -207,7 +207,10 @@ export class Game {
     window.addEventListener('keydown', kickMusic, { once: true })
 
     document.addEventListener('visibilitychange', () => {
-      if (document.hidden) this.last = performance.now()
+      this.pageHidden = document.hidden
+      this.last = performance.now()
+      if (document.hidden) this.audio.suspend()
+      else void this.audio.resume()
     })
 
     this.last = performance.now()
@@ -423,6 +426,22 @@ export class Game {
   }
 
   private frame(now: number) {
+    try {
+      this.tick(now)
+    } catch (err) {
+      console.error(err)
+      this.last = performance.now()
+    } finally {
+      requestAnimationFrame((t) => this.frame(t))
+    }
+  }
+
+  private tick(now: number) {
+    if (this.pageHidden || this.renderer.isContextLost()) {
+      this.last = now
+      return
+    }
+
     const dt = Math.min(0.05, (now - this.last) / 1000)
     this.last = now
 
@@ -530,13 +549,12 @@ export class Game {
 
     this.renderer.render(dt)
     this.fpsCounter.update(dt)
-    requestAnimationFrame((t) => this.frame(t))
   }
 
   private hearWorldProjectiles() {
     for (const p of this.projectiles.projectiles) {
-      if (p.fromPlayer || this.heardProjectiles.has(p)) continue
-      this.heardProjectiles.add(p)
+      if (!p.alive || p.fromPlayer || p.heard) continue
+      p.heard = true
       this.audio.plasmaFireAt(p.mesh.position)
     }
   }

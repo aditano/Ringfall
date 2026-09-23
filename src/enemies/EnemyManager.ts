@@ -5,6 +5,10 @@ import type { AudioManager } from '../audio/AudioManager'
 import type { ProjectileManager } from '../weapons/Projectile'
 import { Enemy, EnemyState, type EnemyKind } from './Enemy'
 
+/** Beyond radar range. Sleep so a full mission of leftovers does not keep simulating. */
+const SLEEP_DIST_SQ = 70 * 70
+const WAKE_DIST_SQ = 58 * 58
+
 export interface WaveDefinition {
   count: number
   eliteChance: number
@@ -176,6 +180,24 @@ export class EnemyManager {
 
   update(dt: number, playerPos: THREE.Vector3): void {
     for (const e of this.enemies) {
+      if (e.state === EnemyState.Dead) continue
+      const dx = e.group.position.x - playerPos.x
+      const dz = e.group.position.z - playerPos.z
+      const distSq = dx * dx + dz * dz
+      const dying = e.state === EnemyState.Dying
+      if (!dying && e.simulated && distSq > SLEEP_DIST_SQ) {
+        e.setSimulated(false)
+        continue
+      }
+      if (!e.simulated) {
+        if (e.state === EnemyState.Dying) {
+          e.state = EnemyState.Dead
+          e.group.visible = false
+          continue
+        }
+        if (distSq > WAKE_DIST_SQ) continue
+        e.setSimulated(true)
+      }
       e.update(dt, playerPos, this.projectiles, true)
     }
     this.pruneDead()

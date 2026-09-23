@@ -28,6 +28,7 @@ export interface RendererBundle {
   applyPerformance: (perf: PerformanceSettings) => void;
   setAutoDowngrade: (enabled: boolean) => void;
   getFps: () => number;
+  isContextLost: () => boolean;
   dispose: () => void;
 }
 
@@ -108,6 +109,10 @@ export function createRenderer(
   renderer.toneMappingExposure = perf.toneMappingExposure ?? 0.92;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFShadowMap;
+  // Shadows are a full extra scene pass. Render them every other frame unless
+  // something explicitly asks (resize, quality change, context restore).
+  renderer.shadowMap.autoUpdate = false;
+  renderer.shadowMap.needsUpdate = true;
   renderer.domElement.style.display = 'block';
   renderer.domElement.style.width = '100%';
   renderer.domElement.style.height = '100%';
@@ -144,6 +149,8 @@ export function createRenderer(
   let badFrames = 0;
   let displayFps = 60;
   let pendingPerf: PerformanceSettings | null = null;
+  let shadowStep = 0;
+  let contextLost = false;
 
   const resizeBloom = (nextW: number, nextH: number) => {
     const bloomW = Math.max(1, Math.floor(nextW * currentPerf.bloomScale));
@@ -176,6 +183,7 @@ export function createRenderer(
     bloomPass.enabled = currentPerf.enableBloom;
     smaaPass.enabled = currentPerf.enableSMAA;
     vignettePass.enabled = currentPerf.enableVignette;
+    renderer.shadowMap.needsUpdate = currentPerf.shadowMapSize > 0;
     const w = Math.max(1, container.clientWidth || window.innerWidth);
     const h = Math.max(1, container.clientHeight || window.innerHeight);
     resizeBloom(w, h);
@@ -185,7 +193,26 @@ export function createRenderer(
   const onWindowResize = () => resize();
   window.addEventListener('resize', onWindowResize);
 
+  const onContextLost = (event: Event) => {
+    event.preventDefault();
+    contextLost = true;
+  };
+  const onContextRestored = () => {
+    contextLost = false;
+    try {
+      composer.reset();
+      resize();
+      renderer.shadowMap.needsUpdate = true;
+    } catch (err) {
+      console.error('WebGL context restore failed', err);
+    }
+  };
+  renderer.domElement.addEventListener('webglcontextlost', onContextLost);
+  renderer.domElement.addEventListener('webglcontextrestored', onContextRestored);
+
   const render = (deltaSeconds = 0) => {
+    if (contextLost || renderer.getContext().isContextLost()) return;
+
     if (pendingPerf) {
       const next = pendingPerf;
       pendingPerf = null;
@@ -213,6 +240,11 @@ export function createRenderer(
       }
     }
 
+    if (currentPerf.shadowMapSize > 0) {
+      shadowStep = (shadowStep + 1) % 2;
+      if (shadowStep === 0) renderer.shadowMap.needsUpdate = true;
+    }
+
     if (needsComposer()) {
       composer.render();
     } else {
@@ -226,6 +258,8 @@ export function createRenderer(
 
   const dispose = () => {
     window.removeEventListener('resize', onWindowResize);
+    renderer.domElement.removeEventListener('webglcontextlost', onContextLost);
+    renderer.domElement.removeEventListener('webglcontextrestored', onContextRestored);
     composer.dispose();
     renderer.dispose();
     renderer.domElement.remove();
@@ -254,6 +288,7 @@ export function createRenderer(
       frameBudget = 0;
     },
     getFps: () => displayFps,
+    isContextLost: () => contextLost || renderer.getContext().isContextLost(),
     dispose,
   };
 }
