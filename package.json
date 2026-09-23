@@ -13,7 +13,7 @@
     "typescript": "~6.0.2",
     "vite": "^8.2.0"
   },
-  "description": "Ringfall — Halo Infinite-inspired FPS in Three.js",
+  "description": "Halo: Combat Evolved mission recreation in Three.js",
   "dependencies": {
     "three": "^0.185.1"
   }

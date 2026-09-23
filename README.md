@@ -1,8 +1,8 @@
-# Ringfall
+# Halo
 
-A Halo Infinite–inspired first-person shooter in **Three.js**.
+A first-person recreation of the Halo: Combat Evolved mission **Halo**, built in Three.js.
 
-**Ringfall** is the game title (product name). Campaign missions can be named separately later if you add a mission select screen.
+You wake in a lifeboat on the ring, fight through the valley with a squad of marines, take a Warthog, cross a Forerunner installation, and board Foehammer's Pelican.
 
 ## Run
 
@@ -15,13 +15,16 @@ npm run dev
 
 | Input | Action |
 |--------|--------|
-| WASD | Move |
+| WASD | Move / drive |
 | Mouse | Look (pointer lock) |
 | LMB | Fire |
 | RMB | Aim down sights |
 | R | Reload |
-| 1 / 2 / 3 | BR / AR / Plasma |
+| 1 / 2 | Switch weapons |
 | Scroll / Q | Cycle weapons |
+| E | Use, board, or exit the Warthog |
+| F | Swap between the driver seat and the turret |
+| G | Frag grenade |
 | Shift | Sprint |
 | Space | Jump |
 | C / Ctrl | Crouch |
@@ -31,4 +34,3 @@ npm run dev
 - Vite + TypeScript + Three.js
 - PBR + environment reflections, bloom / SMAA, ACES tonemapping
 - Positional HRTF audio + dynamic combat music
-- Halo CE–style title ring + procedural choir bed

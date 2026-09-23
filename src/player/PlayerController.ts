@@ -57,6 +57,7 @@ export class PlayerController {
   private colliders: AABB[] = []
   private groundSampler?: (x: number, z: number) => number
   private readonly colliderScratch: AABB[] = []
+  private bounds = { minX: -85, maxX: 85, minZ: -85, maxZ: 85 }
   private unlockCb?: () => void
   private hadLock = false
   private readonly onLock: () => void
@@ -91,6 +92,10 @@ export class PlayerController {
 
   setGroundSampler(fn: (x: number, z: number) => number): void {
     this.groundSampler = fn
+  }
+
+  setWorldBounds(minX: number, maxX: number, minZ: number, maxZ: number): void {
+    this.bounds = { minX, maxX, minZ, maxZ }
   }
 
   resetTo(position: THREE.Vector3, yaw = 0): void {
@@ -274,9 +279,8 @@ export class PlayerController {
     this.grounded = false
     this.resolveAxis('y')
 
-    const lim = 85
-    this.position.x = THREE.MathUtils.clamp(this.position.x, -lim, lim)
-    this.position.z = THREE.MathUtils.clamp(this.position.z, -lim, lim)
+    this.position.x = THREE.MathUtils.clamp(this.position.x, this.bounds.minX, this.bounds.maxX)
+    this.position.z = THREE.MathUtils.clamp(this.position.z, this.bounds.minZ, this.bounds.maxZ)
   }
 
   private resolveAxis(axis: 'x' | 'y' | 'z'): void {
@@ -303,6 +307,9 @@ export class PlayerController {
       const overlapZ = pz + RADIUS > c.min.z && pz - RADIUS < c.max.z
       const overlapY = head > c.min.y && feet < c.max.y
       if (!(overlapX && overlapZ && overlapY)) continue
+
+      // Low slabs (the light bridge, rocks) are floors, not walls.
+      if (axis !== 'y' && c.max.y <= feet + 0.5) continue
 
       if (axis === 'x') {
         const pushL = c.min.x - (px + RADIUS)

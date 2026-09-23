@@ -19,7 +19,7 @@ export const EnemyState = {
 
 export type EnemyStateId = (typeof EnemyState)[keyof typeof EnemyState]
 
-export type EnemyKind = 'grunt' | 'elite'
+export type EnemyKind = 'grunt' | 'elite' | 'jackal'
 
 export interface EnemyDamageResult {
   shieldDamage: number
@@ -79,6 +79,10 @@ export class Enemy {
   private shieldCooldown = 0
   private deathSpin = 0
   private readonly baseScale: number
+  groundAt: ((x: number, z: number) => number) | null = null
+  pointShield = 0
+  private maxPointShield = 0
+  private pointShieldMesh: THREE.Mesh | null = null
 
   constructor(kind: EnemyKind, spawn: SpawnPoint, id: string) {
     this.id = id
@@ -90,42 +94,69 @@ export class Enemy {
     this.group.name = id
 
     const isElite = kind === 'elite'
-    this.baseScale = isElite ? 1.15 : 0.85
+    const isJackal = kind === 'jackal'
+    this.baseScale = isElite ? 1.12 : isJackal ? 1.02 : 0.78
 
     if (isElite) {
-      this.maxHealth = 140
-      this.maxShield = 120
+      this.maxHealth = 100
+      this.maxShield = 75
       this.health = this.maxHealth
       this.shield = this.maxShield
-      this.speed = 5.4
-      this.turnSpeed = 4.6
-      this.attackRange = 28
-      this.attackCooldown = 0.55
-      this.projectileSpeed = 48
-      this.projectileDamage = 18
-      this.headshotMultiplier = 2.5
-      this.coverChance = 0.55
+      this.speed = 4.3
+      this.turnSpeed = 4.4
+      this.attackRange = 26
+      this.attackCooldown = 0.62
+      this.projectileSpeed = 46
+      this.projectileDamage = 14
+      this.headshotMultiplier = 2.2
+      this.coverChance = 0.45
       this.bodyMat = enemyArmor('blue')
       this.accentMat = enemyArmor('blue').clone()
+      this.accentMat.color.setHex(0x3ec8ff)
       this.accentMat.emissive = new THREE.Color(0x33ffaa)
       this.accentMat.emissiveIntensity = 0.55
-    } else {
-      this.maxHealth = 80
-      this.maxShield = 40
+    } else if (isJackal) {
+      this.maxHealth = 58
+      this.maxShield = 0
       this.health = this.maxHealth
-      this.shield = this.maxShield
-      this.speed = 4.0
-      this.turnSpeed = 3.8
-      this.attackRange = 20
-      this.attackCooldown = 0.9
-      this.projectileSpeed = 38
-      this.projectileDamage = 12
-      this.headshotMultiplier = 2.2
-      this.coverChance = 0.35
+      this.shield = 0
+      this.maxPointShield = 70
+      this.pointShield = 70
+      this.speed = 3.4
+      this.turnSpeed = 5
+      this.attackRange = 24
+      this.attackCooldown = 0.85
+      this.projectileSpeed = 44
+      this.projectileDamage = 11
+      this.headshotMultiplier = 1.8
+      this.coverChance = 0.1
       this.bodyMat = enemyArmor('red')
-      this.accentMat = enemyArmor('red').clone()
-      this.accentMat.emissive = new THREE.Color(0xff8a2b)
-      this.accentMat.emissiveIntensity = 0.55
+      this.bodyMat.color.setHex(0x8a7048)
+      this.bodyMat.emissive.setHex(0x3a2a18)
+      this.accentMat = enemyArmor('blue').clone()
+      this.accentMat.color.setHex(0x49d6ff)
+      this.accentMat.emissive = new THREE.Color(0x49d6ff)
+      this.accentMat.emissiveIntensity = 0.8
+    } else {
+      this.maxHealth = 38
+      this.maxShield = 0
+      this.health = this.maxHealth
+      this.shield = 0
+      this.speed = 3.7
+      this.turnSpeed = 3.8
+      this.attackRange = 18
+      this.attackCooldown = 1.05
+      this.projectileSpeed = 36
+      this.projectileDamage = 8
+      this.headshotMultiplier = 2.4
+      this.coverChance = 0.2
+      this.bodyMat = enemyArmor('red')
+      this.bodyMat.color.setHex(0xd4652a)
+      this.bodyMat.emissive.setHex(0x5a2208)
+      this.accentMat = enemyArmor('blue').clone()
+      this.accentMat.color.setHex(0x3ec6ff)
+      this.accentMat.emissive = new THREE.Color(0x1a8ec8)
+      this.accentMat.emissiveIntensity = 0.7
     }
 
     this.shieldMat = energyGlass().clone()
@@ -134,7 +165,9 @@ export class Enemy {
     this.shieldMat.emissiveIntensity = 0.45
     this.shieldMat.opacity = 0.28
 
-    this.buildMesh(isElite)
+    if (isJackal) this.buildJackal()
+    else this.buildMesh(isElite)
+    if (this.maxShield <= 0) this.shieldMesh.visible = false
     this.seedPatrol(spawn.position)
     if (spawn.yaw !== undefined) {
       this.group.rotation.y = spawn.yaw
@@ -167,6 +200,36 @@ export class Enemy {
   ): EnemyDamageResult {
     if (!this.alive || this.state === EnemyState.Dying || this.state === EnemyState.Dead) {
       return { shieldDamage: 0, healthDamage: 0, killed: false, wasHeadshot: headshot }
+    }
+
+    if (this.kind === 'jackal' && this.pointShield > 0) {
+      _tmpV.copy(point).sub(this.group.position)
+      _tmpV.y = 0
+      if (_tmpV.lengthSq() > 1e-6) {
+        _tmpV.normalize()
+        _tmpV2.set(0, 0, 1).applyQuaternion(this.group.quaternion)
+        if (_tmpV.dot(_tmpV2) > 0.05) {
+          this.pointShield = Math.max(0, this.pointShield - amount)
+          effects.spawnShieldRipple(this.group.position.clone().setY(this.group.position.y + 1.2), 0x66e8ff)
+          if (this.pointShield <= 0 && this.pointShieldMesh) this.pointShieldMesh.visible = false
+          this.triggerHitReact(point)
+          return { shieldDamage: amount, healthDamage: 0, killed: false, wasHeadshot: false }
+        }
+      }
+    }
+
+    if (this.kind === 'grunt') {
+      _tmpV.copy(point).sub(this.group.position)
+      _tmpV.y = 0
+      if (_tmpV.lengthSq() > 1e-4) {
+        _tmpV.normalize()
+        _tmpV2.set(0, 0, -1).applyQuaternion(this.group.quaternion)
+        if (_tmpV.dot(_tmpV2) > 0.5) {
+          this.health = 0
+          this.beginDeath(effects)
+          return { shieldDamage: 0, healthDamage: amount, killed: true, wasHeadshot: false }
+        }
+      }
     }
 
     let remaining = amount
@@ -422,6 +485,68 @@ export class Enemy {
     void scale
   }
 
+  private buildJackal(): void {
+    const tag = (obj: THREE.Object3D, head = false) => {
+      obj.userData.enemyId = this.id
+      if (head) obj.userData.isHead = true
+      this.meshes.push(obj)
+    }
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.85, 0.28), this.bodyMat)
+    torso.position.y = 1.15
+    torso.castShadow = true
+    tag(torso)
+    this.group.add(torso)
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.42, 0.22), this.bodyMat)
+    head.position.y = 1.85
+    head.castShadow = true
+    tag(head, true)
+    this.group.add(head)
+    const beak = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.22, 4), this.accentMat)
+    beak.rotation.x = Math.PI / 2
+    beak.position.set(0, 1.78, 0.16)
+    tag(beak, true)
+    this.group.add(beak)
+    for (const side of [-1, 1]) {
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.7, 0.1), this.bodyMat)
+      leg.position.set(side * 0.12, 0.4, 0)
+      tag(leg)
+      this.group.add(leg)
+    }
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.5, 0.1), this.bodyMat)
+    arm.position.set(0.28, 1.2, 0.15)
+    tag(arm)
+    this.group.add(arm)
+    const shield = new THREE.Mesh(
+      new THREE.CircleGeometry(0.48, 16),
+      new THREE.MeshStandardMaterial({
+        color: 0x9ae9ff,
+        emissive: 0x49d6ff,
+        emissiveIntensity: 1.1,
+        transparent: true,
+        opacity: 0.45,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      }),
+    )
+    shield.position.set(0.15, 1.25, 0.42)
+    tag(shield)
+    this.group.add(shield)
+    this.pointShieldMesh = shield
+
+    const weapon = new THREE.Group()
+    weapon.position.set(-0.22, 1.15, 0.32)
+    weapon.add(new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.1, 0.4), forerunnerMetal(0.4)))
+    const muzzle = new THREE.Object3D()
+    muzzle.position.set(0, 0, 0.24)
+    weapon.add(muzzle)
+    this.group.add(weapon)
+    this.weaponMuzzle = muzzle
+
+    this.shieldMesh = new THREE.Mesh(new THREE.SphereGeometry(0.2, 6, 4), this.shieldMat)
+    this.shieldMesh.visible = false
+    this.group.add(this.shieldMesh)
+  }
+
   private seedPatrol(origin: THREE.Vector3): void {
     const radius = this.kind === 'elite' ? 8 : 5
     for (let i = 0; i < 4; i++) {
@@ -457,7 +582,7 @@ export class Enemy {
 
   private updateChase(dt: number, playerPos: THREE.Vector3, dist: number): void {
     this.faceToward(playerPos, dt * this.turnSpeed)
-    if (dist <= this.attackRange * 0.85) {
+    if (dist <= this.attackRange * (this.kind === 'jackal' ? 1 : 0.85)) {
       this.enterState(EnemyState.Shoot)
       return
     }
@@ -475,6 +600,13 @@ export class Enemy {
   ): void {
     this.faceToward(playerPos, dt * this.turnSpeed * 1.2)
     this.velocity.multiplyScalar(0.7)
+    if (this.kind === 'jackal' && dist < 8) {
+      _tmpV.copy(this.group.position).sub(playerPos).setY(0)
+      if (_tmpV.lengthSq() > 0.01) {
+        _tmpV.normalize().multiplyScalar(this.speed)
+        this.velocity.add(_tmpV)
+      }
+    }
 
     _tmpV.copy(playerPos).sub(this.group.position).setY(0).normalize()
     _tmpV2.set(-_tmpV.z, 0, _tmpV.x).multiplyScalar(Math.sin(this.stateTimer * 3) * 1.6)
@@ -523,10 +655,11 @@ export class Enemy {
     dir.z += (Math.random() - 0.5) * spread
     dir.normalize()
 
+    const color = this.kind === 'elite' ? 0x44ffaa : this.kind === 'jackal' ? 0x66d8ff : 0xc44dff
     projectiles.spawn(origin.clone(), dir, this.projectileSpeed, {
       damage: this.projectileDamage,
       fromPlayer: false,
-      color: this.kind === 'elite' ? 0x44ffaa : 0xc44dff,
+      color,
     })
   }
 
@@ -554,10 +687,19 @@ export class Enemy {
 
   private applyLocomotion(dt: number): void {
     this.group.position.addScaledVector(this.velocity, dt)
-    this.group.position.y = this.home.y
+    const ground = this.groundAt
+      ? this.groundAt(this.group.position.x, this.group.position.z)
+      : this.home.y
+    if (ground < -4) {
+      this.alive = false
+      this.state = EnemyState.Dead
+      this.group.visible = false
+      return
+    }
+    this.group.position.y = ground
     const speed = this.velocity.length()
     if (speed > 0.2) {
-      this.group.position.y = this.home.y + Math.abs(Math.sin(this.stateTimer * 10)) * 0.03
+      this.group.position.y = ground + Math.abs(Math.sin(this.stateTimer * 10)) * 0.03
     }
   }
 
@@ -572,6 +714,13 @@ export class Enemy {
   }
 
   private updateShieldVisual(): void {
+    if (this.pointShieldMesh) {
+      const mat = this.pointShieldMesh.material as THREE.MeshStandardMaterial
+      this.pointShieldMesh.visible = this.pointShield > 0
+      const ratioP = this.maxPointShield > 0 ? this.pointShield / this.maxPointShield : 0
+      mat.opacity = 0.18 + ratioP * 0.45
+      mat.emissiveIntensity = 0.4 + ratioP * 1.2
+    }
     const ratio = this.maxShield > 0 ? this.shield / this.maxShield : 0
     this.shieldMesh.visible = ratio > 0.01
     this.shieldMat.opacity = 0.12 + ratio * 0.28

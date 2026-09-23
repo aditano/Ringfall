@@ -14,7 +14,7 @@ export interface WaveDefinition {
 }
 
 export interface EnemyManagerOptions {
-  scene: THREE.Scene
+  scene: THREE.Object3D
   spawns: SpawnPoint[]
   projectiles: ProjectileManager
   effects: EffectsManager
@@ -29,11 +29,12 @@ export class EnemyManager {
   enemies: Enemy[] = []
   kills = 0
 
-  private readonly scene: THREE.Scene
+  private readonly scene: THREE.Object3D
   private readonly spawns: SpawnPoint[]
   private readonly projectiles: ProjectileManager
   private readonly effects: EffectsManager
   private readonly audio: AudioManager
+  groundAt: ((x: number, z: number) => number) | null = null
   private readonly arenaCenter = new THREE.Vector3()
   private readonly arenaRadius = 18
   private readonly meshCache: THREE.Object3D[] = []
@@ -53,7 +54,7 @@ export class EnemyManager {
   onWaveStarted?: (wave: number) => void
 
   constructor(
-    scene: THREE.Scene,
+    scene: THREE.Object3D,
     spawns: SpawnPoint[],
     projectiles: ProjectileManager,
     effects: EffectsManager,
@@ -141,10 +142,24 @@ export class EnemyManager {
 
   spawnEnemy(kind: EnemyKind, spawn: SpawnPoint): Enemy {
     const e = new Enemy(kind, spawn, `e${this.seq++}`)
+    e.groundAt = this.groundAt
     this.enemies.push(e)
     this.scene.add(e.group)
     this.invalidateMeshCache()
     return e
+  }
+
+  purgeIds(ids: readonly string[]): void {
+    if (ids.length === 0) return
+    const drop = new Set(ids)
+    for (let i = this.enemies.length - 1; i >= 0; i--) {
+      const e = this.enemies[i]!
+      if (!drop.has(e.id)) continue
+      e.alive = false
+      e.dispose()
+      this.enemies.splice(i, 1)
+    }
+    this.invalidateMeshCache()
   }
 
   damageEnemy(id: string, damage: number, point: THREE.Vector3, headshot: boolean): boolean {

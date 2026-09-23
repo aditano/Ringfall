@@ -72,21 +72,126 @@ const HUD_CSS = `
 
 .rf-hud * { box-sizing: border-box; }
 
-/* —— Wave counter —— */
-.rf-wave {
+/* —— Objective (top left, CE green) —— */
+.rf-objective {
   position: absolute;
   top: 22px;
-  left: 50%;
-  transform: translateX(-50%);
-  font-size: 11px;
-  letter-spacing: 0.42em;
+  left: 26px;
+  max-width: min(420px, 46vw);
+  font-family: "Rajdhani", system-ui, sans-serif;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #e7f6e4;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+}
+.rf-objective small {
+  display: block;
+  margin-bottom: 2px;
+  font-family: "Orbitron", sans-serif;
+  font-size: 10px;
+  letter-spacing: 0.28em;
   text-transform: uppercase;
-  color: rgba(255, 154, 60, 0.88);
-  text-shadow: 0 0 16px rgba(255, 154, 60, 0.45);
-  padding: 6px 14px;
-  border: 1px solid rgba(255, 154, 60, 0.25);
-  background: linear-gradient(180deg, rgba(8, 16, 20, 0.55), rgba(4, 8, 12, 0.25));
-  clip-path: polygon(8px 0, calc(100% - 8px) 0, 100% 100%, 0 100%);
+  color: #d6c27a;
+}
+.rf-way {
+  position: absolute;
+  top: 18px;
+  left: 50%;
+  width: 0;
+  height: 0;
+  margin-left: -7px;
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+  border-bottom: 12px solid rgba(190, 255, 214, 0.9);
+  filter: drop-shadow(0 0 6px rgba(120, 255, 180, 0.7));
+  opacity: 0;
+  transform-origin: 50% 18px;
+}
+.rf-subtitle {
+  position: absolute;
+  left: 50%;
+  bottom: 14%;
+  transform: translateX(-50%);
+  width: min(640px, 86vw);
+  text-align: center;
+  font-family: "Rajdhani", system-ui, sans-serif;
+  font-size: 22px;
+  font-weight: 600;
+  color: #f4faf4;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.9);
+}
+.rf-subtitle b {
+  display: block;
+  color: #8ec8ff;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 15px;
+  margin-bottom: 2px;
+}
+.rf-prompt, .rf-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 22%;
+  transform: translateX(-50%);
+  font-family: "Rajdhani", system-ui, sans-serif;
+  font-size: 16px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #f3f7ef;
+  text-shadow: 0 1px 2px #000;
+  opacity: 0;
+}
+.rf-hint { bottom: 8%; opacity: 0.8; font-size: 14px; letter-spacing: 0.12em; }
+.rf-prompt.rf-show { opacity: 1; }
+.rf-nades {
+  position: absolute;
+  right: 32px;
+  bottom: 108px;
+  font-family: "Orbitron", sans-serif;
+  font-size: 13px;
+  letter-spacing: 0.18em;
+  color: #d7e7cf;
+  text-shadow: 0 1px 2px #000;
+}
+.rf-radar {
+  position: absolute;
+  left: 26px;
+  bottom: 24px;
+  width: 132px;
+  height: 132px;
+  border-radius: 50%;
+  border: 2px solid rgba(120, 220, 150, 0.55);
+  background:
+    radial-gradient(circle, rgba(40, 120, 70, 0.18), rgba(0, 12, 8, 0.45) 70%),
+    repeating-radial-gradient(circle, transparent 0 21px, rgba(120, 220, 150, 0.18) 22px 23px);
+  box-shadow: inset 0 0 18px rgba(80, 200, 140, 0.2);
+  overflow: hidden;
+}
+.rf-radar::before, .rf-radar::after {
+  content: "";
+  position: absolute;
+  background: rgba(120, 220, 150, 0.28);
+}
+.rf-radar::before { left: 50%; top: 8px; bottom: 8px; width: 1px; }
+.rf-radar::after { top: 50%; left: 8px; right: 8px; height: 1px; }
+.rf-blip {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 -3px;
+  border-radius: 50%;
+  background: #ff5a4a;
+  box-shadow: 0 0 6px #ff5a4a;
+}
+.rf-blip.rf-friendly { background: #7dff9a; box-shadow: 0 0 6px #7dff9a; }
+.rf-fade {
+  position: absolute;
+  inset: 0;
+  background: #000;
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* —— Crosshair / reticle —— */
@@ -167,9 +272,11 @@ const HUD_CSS = `
 /* —— Vitals (bottom-left) —— */
 .rf-vitals {
   position: absolute;
-  left: 28px;
-  bottom: 28px;
-  width: min(320px, 42vw);
+  left: 50%;
+  top: 16px;
+  bottom: auto;
+  transform: translateX(-50%);
+  width: min(300px, 42vw);
   padding: 14px 16px 12px;
   background:
     linear-gradient(135deg, rgba(8, 22, 28, 0.72), rgba(4, 10, 14, 0.4)),
@@ -225,7 +332,7 @@ const HUD_CSS = `
 .rf-health-fill {
   height: 100%;
   width: 100%;
-  background: linear-gradient(90deg, #9fb89a, var(--rf-health));
+  background: linear-gradient(90deg, #9a2020, #ff5a4a);
   box-shadow: 0 0 8px rgba(232, 240, 228, 0.4);
   transition: width 0.15s ease-out;
 }
@@ -249,12 +356,11 @@ const HUD_CSS = `
 /* —— Weapon (bottom-center) —— */
 .rf-weapon {
   position: absolute;
-  left: 50%;
+  right: 28px;
   bottom: 24px;
-  transform: translateX(-50%);
-  min-width: 220px;
-  padding: 10px 22px 12px;
-  text-align: center;
+  min-width: 180px;
+  padding: 10px 18px 12px;
+  text-align: right;
   background: linear-gradient(180deg, rgba(10, 18, 22, 0.15), rgba(8, 16, 20, 0.72));
   border-top: 1px solid rgba(255, 154, 60, 0.45);
   clip-path: polygon(8% 0, 92% 0, 100% 100%, 0 100%);
@@ -269,7 +375,7 @@ const HUD_CSS = `
 }
 .rf-weapon-ammo {
   display: flex;
-  justify-content: center;
+  justify-content: flex-end;
   align-items: baseline;
   gap: 6px;
   font-variant-numeric: tabular-nums;
@@ -461,7 +567,15 @@ export class HUD {
   private readonly banner: HTMLElement
   private readonly lockHint: HTMLElement
   private readonly pain: HTMLElement
-  private readonly waveEl: HTMLElement
+  private readonly objectiveText: HTMLElement
+  private readonly subtitleEl: HTMLElement
+  private readonly promptEl: HTMLElement
+  private readonly hintEl: HTMLElement
+  private readonly nadeEl: HTMLElement
+  private readonly radarEl: HTMLElement
+  private readonly wayEl: HTMLElement
+  private readonly fadeEl: HTMLElement
+  private readonly blipPool: HTMLElement[] = []
 
   private ads = false
   private overEnemy = false
@@ -479,7 +593,9 @@ export class HUD {
     this.root.setAttribute('aria-hidden', 'true')
 
     this.root.innerHTML = `
-      <div class="rf-wave">WAVE 1</div>
+      <div class="rf-fade"></div>
+      <div class="rf-objective"><small>Objective</small><span>Exit the lifeboat</span></div>
+      <div class="rf-way"></div>
       <div class="rf-pain"></div>
       <div class="rf-dmg-layer"></div>
       <div class="rf-reticle"><div class="rf-reticle-dot"></div></div>
@@ -487,6 +603,11 @@ export class HUD {
       <div class="rf-killfeed"></div>
       <div class="rf-banner"></div>
       <div class="rf-lock-hint">Click to aim</div>
+      <div class="rf-subtitle"></div>
+      <div class="rf-prompt"></div>
+      <div class="rf-hint"></div>
+      <div class="rf-nades">FRAG 2</div>
+      <div class="rf-radar"></div>
       <div class="rf-vitals">
         <div class="rf-vitals-label">Energy Shields</div>
         <div class="rf-shield-segments"></div>
@@ -523,7 +644,14 @@ export class HUD {
     this.banner = this.root.querySelector('.rf-banner')!
     this.lockHint = this.root.querySelector('.rf-lock-hint')!
     this.pain = this.root.querySelector('.rf-pain')!
-    this.waveEl = this.root.querySelector('.rf-wave')!
+    this.objectiveText = this.root.querySelector('.rf-objective span')!
+    this.subtitleEl = this.root.querySelector('.rf-subtitle')!
+    this.promptEl = this.root.querySelector('.rf-prompt')!
+    this.hintEl = this.root.querySelector('.rf-hint')!
+    this.nadeEl = this.root.querySelector('.rf-nades')!
+    this.radarEl = this.root.querySelector('.rf-radar')!
+    this.wayEl = this.root.querySelector('.rf-way')!
+    this.fadeEl = this.root.querySelector('.rf-fade')!
 
     const segHost = this.root.querySelector('.rf-shield-segments')!
     for (let i = 0; i < this.segmentCount; i++) {
@@ -537,7 +665,73 @@ export class HUD {
   }
 
   setWave(wave: number): void {
-    this.waveEl.textContent = `WAVE ${Math.max(1, wave)}`
+    this.setObjective(`Wave ${Math.max(1, wave)}`)
+  }
+
+  setObjective(text: string): void {
+    this.objectiveText.textContent = text
+  }
+
+  setSubtitle(speaker: string, text: string): void {
+    this.subtitleEl.innerHTML = `<b>${escapeHtml(speaker)}</b><span>${escapeHtml(text)}</span>`
+  }
+
+  clearSubtitle(): void {
+    this.subtitleEl.innerHTML = ''
+  }
+
+  setPrompt(text: string | null): void {
+    this.promptEl.textContent = text ?? ''
+    this.promptEl.classList.toggle('rf-show', Boolean(text))
+  }
+
+  setHint(text: string | null): void {
+    this.hintEl.textContent = text ?? ''
+    this.hintEl.style.opacity = text ? '0.8' : '0'
+  }
+
+  setGrenades(n: number): void {
+    this.nadeEl.textContent = `FRAG ${n}`
+  }
+
+  setFade(opacity: number): void {
+    this.fadeEl.style.opacity = String(Math.max(0, Math.min(1, opacity)))
+  }
+
+  setReticleVisible(visible: boolean): void {
+    this.reticle.style.opacity = visible ? '1' : '0'
+  }
+
+  setWaypoint(angle: number | null): void {
+    if (angle === null) {
+      this.wayEl.style.opacity = '0'
+      return
+    }
+    this.wayEl.style.opacity = '1'
+    this.wayEl.style.transform = `rotate(${angle}rad)`
+  }
+
+  setRadar(blips: { x: number; y: number; friendly?: boolean }[]): void {
+    while (this.blipPool.length < blips.length) {
+      const dot = document.createElement('div')
+      dot.className = 'rf-blip'
+      this.radarEl.appendChild(dot)
+      this.blipPool.push(dot)
+    }
+    for (let i = 0; i < this.blipPool.length; i++) {
+      const el = this.blipPool[i]!
+      const b = blips[i]
+      if (!b) {
+        el.style.display = 'none'
+        continue
+      }
+      const x = Math.max(-1, Math.min(1, b.x))
+      const y = Math.max(-1, Math.min(1, b.y))
+      el.style.display = 'block'
+      el.style.left = `${50 + x * 44}%`
+      el.style.top = `${50 - y * 44}%`
+      el.classList.toggle('rf-friendly', Boolean(b.friendly))
+    }
   }
 
   show(): void {

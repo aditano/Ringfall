@@ -3,7 +3,8 @@ import { createRenderer } from '../rendering/RendererSetup'
 import type { PerformanceSettings } from '../rendering/PerformanceProfile'
 import { createSkyAtmosphere } from '../world/SkyAtmosphere'
 import { setupLighting } from '../world/Lighting'
-import { buildEnvironment, sampleGroundHeight } from '../world/Environment'
+import { buildHaloMission, haloHeight } from '../world/HaloMissionWorld'
+import { HaloCampaign } from '../mission/HaloCampaign'
 import { PlayerController } from '../player/PlayerController'
 import { AudioManager } from '../audio/AudioManager'
 import { DamageSystem } from '../combat/DamageSystem'
@@ -11,6 +12,22 @@ import { ProjectileManager } from '../weapons/Projectile'
 import { WeaponSystem } from '../weapons/WeaponSystem'
 import { EffectsManager } from '../vfx/EffectsManager'
 import { EnemyManager } from '../enemies/EnemyManager'
+import type { EnemyKind } from '../enemies/Enemy'
+
+function enemyName(kind: EnemyKind): string {
+  switch (kind) {
+    case 'grunt':
+      return 'Grunt'
+    case 'jackal':
+      return 'Jackal'
+    case 'elite':
+      return 'Elite'
+    default: {
+      const unknown: never = kind
+      return unknown
+    }
+  }
+}
 import { HUD } from '../ui/HUD'
 import { MainMenu } from '../ui/MainMenu'
 import { FpsCounter } from '../ui/FpsCounter'
@@ -18,7 +35,7 @@ import { HaloCEMenuWorld } from '../ui/HaloCEMenuWorld'
 import { applyEnvironmentMap } from '../rendering/EnvironmentMap'
 import { GameSettings, type UserSettings } from '../settings/GameSettings'
 
-const DEFAULT_SUBTITLE = 'Infinite Protocols'
+const DEFAULT_SUBTITLE = 'Mission 02 — Halo'
 
 export class Game {
   private running = false
@@ -28,6 +45,7 @@ export class Game {
   private readonly sky
   private readonly lighting
   private readonly envRoot: THREE.Group
+  private readonly campaign: HaloCampaign
   private readonly player: PlayerController
   private readonly audio = new AudioManager()
   private readonly damage = new DamageSystem()
@@ -46,11 +64,12 @@ export class Game {
   private readonly projCenter = new THREE.Vector3()
   private readonly projHitPoint = new THREE.Vector3()
   private readonly upVec = new THREE.Vector3(0, 1, 0)
+  private readonly seatPos = new THREE.Vector3()
   private spawnYaw = Math.PI
   private menuMusicStarted = false
   private readonly heardProjectiles = new WeakSet<object>()
   private readonly aimRay = new THREE.Raycaster()
-  private betweenWaveBanner = false
+  private finishHold = 0
   private crosshairTick = 0
   private hudSyncT = 0
   private perf: PerformanceSettings
@@ -72,66 +91,77 @@ export class Game {
       shadowMapSize: this.perf.shadowMapSize,
     })
 
-    const env = buildEnvironment(this.renderer.scene)
+    const env = buildHaloMission(this.renderer.scene)
     this.envRoot = env.root
     this.player = new PlayerController(this.renderer.camera, this.renderer.renderer.domElement)
     this.player.setColliders(env.colliders)
-    this.player.setGroundSampler(sampleGroundHeight)
-    if (env.spawnPoints[0]) {
-      this.spawnPos.copy(env.spawnPoints[0].position)
-      this.spawnYaw = env.spawnPoints[0].yaw
-      const ground = sampleGroundHeight(this.spawnPos.x, this.spawnPos.z)
-      this.spawnPos.y = ground + 1.7
-      this.player.resetTo(this.spawnPos, this.spawnYaw)
-    }
+    this.player.setGroundSampler(haloHeight)
+    this.player.setWorldBounds(-30, 760, -48, 48)
+    this.spawnPos.copy(env.playerSpawn.position)
+    this.spawnYaw = env.playerSpawn.yaw
+    this.player.resetTo(this.spawnPos, this.spawnYaw)
 
     this.projectiles = new ProjectileManager(this.renderer.scene)
     this.effects = new EffectsManager(this.renderer.scene)
-    this.enemies = new EnemyManager(
-      this.renderer.scene,
-      env.enemySpawns,
-      this.projectiles,
-      this.effects,
-      this.audio,
-    )
+    this.enemies = new EnemyManager(env.root, [], this.projectiles, this.effects, this.audio)
+    this.enemies.groundAt = haloHeight
 
     this.weapons = new WeaponSystem(
       this.renderer.camera,
       this.audio,
       this.projectiles,
       this.effects,
-      () => this.enemies.getMeshes(),
+      () => {
+        const meshes = this.enemies.getMeshes()
+        const extra = this.campaign?.extraMeshes() ?? []
+        return extra.length ? meshes.concat(extra) : meshes
+      },
       (id, dmg, point, head) => {
+        if (this.campaign.damageProp(id, dmg)) {
+          this.audio.hitmarker()
+          this.hud.flashHitmarker(false)
+          return
+        }
+        const foe = this.enemies.enemies.find((e) => e.id === id)
         const killed = this.enemies.damageEnemy(id, dmg, point, head)
         this.audio.hitmarker()
         this.hud.flashHitmarker(head)
         if (killed) {
           this.audio.enemyDeathAt(point)
-          this.hud.pushKillFeed(head ? 'HEADSHOT' : 'HOSTILE', this.weapons.def.name)
+          const name = foe ? enemyName(foe.kind) : 'Hostile'
+          this.hud.pushKillFeed(head ? `${name} HEADSHOT` : name, this.weapons.def.name)
           this.audio.setMusicIntensity(Math.min(1, this.audioIntensity() + 0.15))
         }
       },
     )
+    this.weapons.setWorldColliders(env.colliders)
 
-    this.enemies.onWaveStarted = (wave) => {
-      this.betweenWaveBanner = false
-      this.hud.setWave(wave)
-      this.hud.showBanner(`WAVE ${wave}`)
-    }
-    this.enemies.onWaveCleared = (wave) => {
-      if (!this.running || !this.damage.alive) return
-      this.betweenWaveBanner = true
-      this.hud.showBanner(`WAVE ${wave} CLEARED`)
-      this.audio.setMusicIntensity(0.12)
-      this.audio.setMusicMode('explore')
-    }
+    this.campaign = new HaloCampaign({
+      world: env,
+      player: this.player,
+      camera: this.renderer.camera,
+      enemies: this.enemies,
+      weapons: this.weapons,
+      damage: this.damage,
+      effects: this.effects,
+      audio: this.audio,
+      projectiles: this.projectiles,
+      setObjective: (text) => this.hud.setObjective(text),
+      setSubtitle: (speaker, text) => this.hud.setSubtitle(speaker, text),
+      clearSubtitle: () => this.hud.clearSubtitle(),
+      setPrompt: (text) => this.hud.setPrompt(text),
+      setGrenades: (n) => this.hud.setGrenades(n),
+      setFade: (opacity) => this.hud.setFade(opacity),
+      setHint: (text) => this.hud.setHint(text),
+      showBanner: (text) => this.hud.showBanner(text),
+    })
 
     this.ceMenu = new HaloCEMenuWorld(this.renderer.scene)
     this.hud = new HUD({ parent: container })
     this.fpsCounter = new FpsCounter(container)
     this.menu = new MainMenu({
       parent: container,
-      title: 'RINGFALL',
+      title: 'HALO',
       subtitle: DEFAULT_SUBTITLE,
       settings: this.settings,
       onPlay: () => this.start(),
@@ -202,6 +232,8 @@ export class Game {
   private pauseToMenu() {
     this.weapons.setFiring(false)
     this.weapons.setAds(false)
+    this.campaign.setTrigger(false)
+    this.audio.setEngine(0)
     this.hud.setPointerLockHint(false)
     this.enterMenuWorld()
     this.menu.show()
@@ -237,11 +269,11 @@ export class Game {
     this.projectiles.clear()
     this.enemies.reset()
     this.weapons.reset()
-    const ground = sampleGroundHeight(this.spawnPos.x, this.spawnPos.z)
+    const ground = haloHeight(this.spawnPos.x, this.spawnPos.z)
     this.spawnPos.y = ground + 1.7
     this.player.resetTo(this.spawnPos, this.spawnYaw)
     this.footT = 0
-    this.betweenWaveBanner = false
+    this.finishHold = 0
     this.crosshairTick = 0
     this.hudSyncT = 0
     if (this.statusEl) this.statusEl.textContent = DEFAULT_SUBTITLE
@@ -269,11 +301,17 @@ export class Game {
         this.player.lock()
         return
       }
-      if (e.button === 0) this.weapons.setFiring(true)
-      if (e.button === 2) this.weapons.setAds(true)
+      if (e.button === 0) {
+        this.weapons.setFiring(!this.campaign.blocksWeapons)
+        this.campaign.setTrigger(true)
+      }
+      if (e.button === 2 && !this.campaign.driving) this.weapons.setAds(true)
     })
     window.addEventListener('mouseup', (e) => {
-      if (e.button === 0) this.weapons.setFiring(false)
+      if (e.button === 0) {
+        this.weapons.setFiring(false)
+        this.campaign.setTrigger(false)
+      }
       if (e.button === 2) this.weapons.setAds(false)
     })
     el.addEventListener('contextmenu', (e) => e.preventDefault())
@@ -292,11 +330,17 @@ export class Game {
         }
         return
       }
+      if (e.repeat) return
       if (e.code === 'KeyR') this.weapons.startReload()
-      if (e.code === 'Digit1') this.weapons.switchWeapon('br')
-      if (e.code === 'Digit2') this.weapons.switchWeapon('ar')
-      if (e.code === 'Digit3') this.weapons.switchWeapon('plasma')
+      if (e.code === 'Digit1') this.weapons.switchSlot(0)
+      if (e.code === 'Digit2') this.weapons.switchSlot(1)
       if (e.code === 'KeyQ') this.weapons.cycleWeapon(-1)
+      if (e.code === 'KeyE') this.campaign.interact()
+      if (e.code === 'KeyF') this.campaign.toggleGun()
+      if (e.code === 'KeyG') {
+        this.player.getLookDirection(this.lookDir)
+        this.campaign.throwGrenade(this.player.position, this.lookDir)
+      }
     })
     el.addEventListener(
       'wheel',
@@ -317,12 +361,12 @@ export class Game {
     this.hud.show()
     this.enterGameplayWorld()
     this.syncHud()
+    this.campaign.begin()
     this.audio.setMusicMode('explore')
     this.audio.setMusicIntensity(0.15)
     this.player.lock()
     this.renderer.camera.position.copy(this.player.position)
     this.renderer.camera.rotation.set(0, this.spawnYaw, 0)
-    this.enemies.startWave(6)
   }
 
   private updateCrosshairTarget(): void {
@@ -354,15 +398,28 @@ export class Game {
       maxShields: this.damage.maxShield,
     })
     const a = this.weapons.ammoState
+    const energy = this.weapons.current === 'plasma' || this.weapons.current === 'prifle'
     this.hud.setWeapon({
       name: this.weapons.def.name,
       ammo: Math.floor(a.mag),
       reserve: a.reserve,
-      isEnergy: this.weapons.current === 'plasma',
-      heat: this.weapons.current === 'plasma' ? a.mag / 100 : undefined,
+      isEnergy: energy,
+      heat: energy ? a.mag / 100 : undefined,
     })
     this.hud.setADS(this.weapons.ads)
     this.hud.setHeat(this.weapons.bloom / Math.max(this.weapons.def.maxBloom, 0.001))
+    this.hud.setReticleVisible(this.campaign.showReticle)
+    this.pushTacticalHud()
+  }
+
+  private pushTacticalHud(): void {
+    this.player.getLookDirection(this.lookDir)
+    this.lookDir.y = 0
+    if (this.lookDir.lengthSq() < 1e-6) this.lookDir.set(0, 0, -1)
+    else this.lookDir.normalize()
+    this.rightDir.crossVectors(this.lookDir, this.upVec).normalize()
+    this.hud.setWaypoint(this.campaign.waypointAngle(this.player.position, this.lookDir, this.rightDir))
+    this.hud.setRadar(this.campaign.radarBlips(this.player.position, this.lookDir, this.rightDir))
   }
 
   private frame(now: number) {
@@ -376,24 +433,38 @@ export class Game {
     if (!inGameplay) {
       this.ceMenu.updateCamera(this.renderer.camera, dt)
     } else {
-      this.lighting.update(dt)
+      this.lighting.update(dt, this.player.position)
       this.sky.update(this.renderer.camera)
     }
 
     if (inGameplay) {
-      this.player.update(dt)
+      const seated = this.campaign.driving
+      if (!seated && !this.campaign.finished) this.player.update(dt)
       this.player.getLookDirection(this.lookDir)
-      this.audio.setListener(this.player.position, this.lookDir)
+      this.campaign.update(dt, this.lookDir)
+      if (seated) {
+        const seat = this.campaign.ridePosition(this.seatPos)
+        if (seat) {
+          this.player.position.copy(seat)
+          this.player.velocity.set(0, 0, 0)
+          this.renderer.camera.position.copy(seat)
+        }
+      }
+      this.player.getLookDirection(this.lookDir)
+      this.audio.setListener(this.renderer.camera.position, this.lookDir)
 
       const moving =
-        this.player.keys.forward ||
-        this.player.keys.back ||
-        this.player.keys.left ||
-        this.player.keys.right
+        !seated &&
+        (this.player.keys.forward ||
+          this.player.keys.back ||
+          this.player.keys.left ||
+          this.player.keys.right)
 
       this.hud.setPointerLockHint(!this.player.locked)
+      this.weapons.group.visible = !seated
+      if (this.campaign.blocksWeapons) this.weapons.setFiring(false)
 
-      if (this.player.locked) {
+      if (this.player.locked && !this.campaign.blocksWeapons) {
         this.weapons.update(dt, moving, this.player.grounded)
         this.updateCrosshairTarget()
       } else {
@@ -411,6 +482,7 @@ export class Game {
         this.effects.applyShakeToCamera(this.renderer.camera, dt)
       }
       this.hud.update(dt)
+      this.pushTacticalHud()
 
       this.hudSyncT += dt
       if (this.hudSyncT >= this.perf.hudSyncInterval) {
@@ -419,7 +491,7 @@ export class Game {
       }
 
       const heat = this.audioIntensity()
-      if (!this.betweenWaveBanner) {
+      if (!this.campaign.finished) {
         this.audio.setMusicIntensity(heat)
         if (heat > 0.35) this.audio.setMusicMode('combat')
         else if (heat < 0.15) this.audio.setMusicMode('explore')
@@ -436,15 +508,24 @@ export class Game {
       this.effects.update(dt)
     }
 
-    if (!this.damage.alive && this.running) {
-      this.running = false
-      this.hud.hide()
-      this.enterMenuWorld()
-      this.menu.show()
-      this.audio.setMusicMode('menu')
-      if (this.statusEl) {
-        this.statusEl.textContent = `KIA — ${this.enemies.kills} eliminations. Deploy again.`
+    if (!this.damage.alive && this.running && !this.menu.isVisible) {
+      this.weapons.setFiring(false)
+      this.campaign.setTrigger(false)
+      this.damage.reset()
+      this.campaign.respawn()
+      this.audio.setMusicMode('explore')
+      this.audio.setMusicIntensity(0.2)
+    }
+
+    if (this.campaign.finished && this.running) {
+      this.finishHold += dt
+      if (this.finishHold > 7) {
+        this.running = false
+        this.pauseToMenu()
+        if (this.statusEl) this.statusEl.textContent = 'Mission complete. Welcome to Halo.'
       }
+    } else {
+      this.finishHold = 0
     }
 
     this.renderer.render(dt)
