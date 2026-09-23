@@ -21,7 +21,7 @@ function isSafari(): boolean {
   return /Safari/i.test(UA) && !/Chrome|Chromium|CriOS|Edg|OPR|Android/i.test(UA)
 }
 
-function isMobile(): boolean {
+export function isMobile(): boolean {
   return /iPhone|iPad|iPod|Android/i.test(UA)
 }
 
@@ -58,16 +58,17 @@ export function detectPerformanceSettings(): PerformanceSettings {
   if (safari || mobile) {
     return {
       tier: 'low',
-      maxPixelRatio: mobile ? 1 : 1.1,
-      shadowMapSize: 512,
+      // Phones lose the WebGL context when a full-resolution shadow map sits next to the color buffer.
+      maxPixelRatio: 1,
+      shadowMapSize: mobile ? 0 : 512,
       enableBloom: false,
       bloomScale: 0.45,
       enableSMAA: false,
       enableVignette: false,
       lightShafts: false,
       environmentMap: false,
-      crosshairRayInterval: 6,
-      hudSyncInterval: 1 / 15,
+      crosshairRayInterval: mobile ? 8 : 6,
+      hudSyncInterval: mobile ? 1 / 12 : 1 / 15,
       toneMappingExposure: 0.9,
     }
   }

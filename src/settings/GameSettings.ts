@@ -1,6 +1,7 @@
 import {
   detectPerformanceSettings,
   isMac,
+  isMobile,
   type PerformanceSettings,
   type QualityTier,
 } from '../rendering/PerformanceProfile'
@@ -162,8 +163,11 @@ export class GameSettings {
       const parsed = JSON.parse(raw) as Partial<UserSettings>
       this.settings = { ...DEFAULT_SETTINGS, ...parsed }
 
-      // Mac laptops often saved ultra/high from desktop testing — reset to auto defaults.
-      if (isMac() && (this.settings.graphicsPreset === 'ultra' || this.settings.graphicsPreset === 'high')) {
+      // Desktop ultra/high presets blow the mobile GPU budget and drop the WebGL context.
+      const tooHeavy =
+        (isMac() || isMobile()) &&
+        (this.settings.graphicsPreset === 'ultra' || this.settings.graphicsPreset === 'high')
+      if (tooHeavy) {
         this.settings.graphicsPreset = 'auto'
         Object.assign(this.settings, this.autoBaselineFields())
         this.save()

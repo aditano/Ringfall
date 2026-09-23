@@ -30,6 +30,7 @@ const FONT_ID = 'ringfall-hud-fonts'
 
 const HUD_CSS = `
 .rf-hud {
+  --rf-touch-reserve: 0px;
   --rf-orange: #ff9a3c;
   --rf-orange-hot: #ffb86b;
   --rf-cyan: #5eead4;
@@ -39,7 +40,7 @@ const HUD_CSS = `
   --rf-danger: #ff4d4d;
   --rf-panel: rgba(6, 14, 18, 0.55);
   --rf-line: rgba(94, 234, 212, 0.45);
-  position: fixed;
+  position: absolute;
   inset: 0;
   pointer-events: none;
   z-index: 40;
@@ -528,6 +529,84 @@ const HUD_CSS = `
   transition: opacity 0.2s ease;
   pointer-events: none;
 }
+
+/* Narrow screens: objective, shields, and kill feed used to share the top edge. */
+.rf-hud.rf-compact .rf-objective {
+  top: max(8px, env(safe-area-inset-top));
+  left: 10px;
+  right: 124px;
+  max-width: none;
+  font-size: 15px;
+}
+.rf-hud.rf-compact .rf-objective small { font-size: 9px; }
+.rf-hud.rf-compact .rf-vitals {
+  top: 58px;
+  left: 10px;
+  right: 10px;
+  bottom: auto;
+  transform: none;
+  width: auto;
+  padding: 8px 10px 8px;
+}
+.rf-hud.rf-compact .rf-shield-segments { height: 10px; margin-bottom: 6px; }
+.rf-hud.rf-compact .rf-killfeed {
+  top: 146px;
+  right: 8px;
+  width: min(190px, 52vw);
+}
+.rf-hud.rf-compact .rf-way {
+  top: max(8px, env(safe-area-inset-top));
+  left: auto;
+  right: 18px;
+  margin-left: 0;
+}
+.rf-hud.rf-compact .rf-banner {
+  top: 28%;
+  font-size: 12px;
+  letter-spacing: 0.22em;
+}
+.rf-hud.rf-compact .rf-subtitle { font-size: 16px; width: min(340px, 92vw); }
+.rf-hud.rf-compact .rf-prompt { font-size: 13px; width: 90vw; text-align: center; }
+.rf-hud.rf-compact .rf-hint { width: 86vw; text-align: center; font-size: 12px; }
+
+/* Lift bottom HUD off the on-screen stick and fire button. */
+.rf-hud.rf-touch-layout {
+  --rf-touch-reserve: 224px;
+}
+.rf-hud.rf-touch-layout .rf-radar {
+  left: max(12px, env(safe-area-inset-left));
+  bottom: calc(var(--rf-touch-reserve) + max(8px, env(safe-area-inset-bottom)));
+  width: 76px;
+  height: 76px;
+}
+.rf-hud.rf-touch-layout .rf-weapon {
+  right: max(12px, env(safe-area-inset-right));
+  bottom: calc(var(--rf-touch-reserve) + max(8px, env(safe-area-inset-bottom)));
+  min-width: 0;
+  width: min(148px, 40vw);
+  padding: 6px 12px 8px;
+}
+.rf-hud.rf-touch-layout .rf-ammo-mag { font-size: 22px; }
+.rf-hud.rf-touch-layout .rf-nades {
+  right: calc(max(12px, env(safe-area-inset-right)) + 156px);
+  bottom: calc(var(--rf-touch-reserve) + 18px + env(safe-area-inset-bottom));
+  font-size: 11px;
+}
+.rf-hud.rf-touch-layout .rf-subtitle {
+  bottom: calc(var(--rf-touch-reserve) + 112px + env(safe-area-inset-bottom));
+}
+.rf-hud.rf-touch-layout .rf-prompt {
+  bottom: calc(var(--rf-touch-reserve) + 172px + env(safe-area-inset-bottom));
+}
+.rf-hud.rf-touch-layout .rf-hint {
+  top: 200px;
+  bottom: auto;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(280px, 78vw);
+  text-align: center;
+}
+.rf-hud.rf-touch-layout .rf-lock-hint { display: none; }
 `
 
 function ensureFonts(): void {
@@ -732,6 +811,15 @@ export class HUD {
       el.style.top = `${50 - y * 44}%`
       el.classList.toggle('rf-friendly', Boolean(b.friendly))
     }
+  }
+
+  setCompact(compact: boolean): void {
+    this.root.classList.toggle('rf-compact', compact)
+    this.killFeedLimit = compact ? 3 : 5
+  }
+
+  setTouchLayout(enabled: boolean): void {
+    this.root.classList.toggle('rf-touch-layout', enabled)
   }
 
   show(): void {
