@@ -23,6 +23,9 @@ export class AudioManager {
   private sfxVolume: number
   private unlocked = false
   private footFlip = false
+  private voices = 0
+  private readonly maxVoices = 28
+  private readonly noiseBuffers = new Map<NoiseKind, AudioBuffer>()
   private charge: { osc: OscillatorNode; gain: GainNode; lfo: OscillatorNode } | null = null
   private engine: { osc: OscillatorNode; gain: GainNode } | null = null
   private readonly unlockHandler: () => void
@@ -48,6 +51,12 @@ export class AudioManager {
 
   isUnlocked(): boolean {
     return this.unlocked
+  }
+
+  /** Release the audio thread while the tab is in the background. */
+  suspend(): void {
+    const ctx = this.ctx
+    if (ctx && ctx.state === 'running') void ctx.suspend()
   }
 
   setMasterVolume(v: number): void {
@@ -186,7 +195,7 @@ export class AudioManager {
   shieldBreak(): void {
     const ctx = this.ensure()
     const t0 = ctx.currentTime
-    const noise = this.noise(0.35, 'white')
+    const noise = this.noise('white')
     const nf = ctx.createBiquadFilter()
     nf.type = 'lowpass'
     nf.frequency.setValueAtTime(3000, t0)
@@ -217,7 +226,7 @@ export class AudioManager {
     this.footFlip = !this.footFlip
     const ctx = this.ensure()
     const t0 = ctx.currentTime
-    const noise = this.noise(0.06, 'brown')
+    const noise = this.noise('brown')
     const f = ctx.createBiquadFilter()
     f.type = 'lowpass'
     f.frequency.value = sprint ? 500 : 350
@@ -238,7 +247,7 @@ export class AudioManager {
   land(): void {
     const ctx = this.ensure()
     const t0 = ctx.currentTime
-    const noise = this.noise(0.1, 'brown')
+    const noise = this.noise('brown')
     const f = ctx.createBiquadFilter()
     f.type = 'lowpass'
     f.frequency.value = 280
@@ -285,7 +294,7 @@ export class AudioManager {
         g.connect(dest)
         osc.start(t0)
         osc.stop(t0 + 0.32)
-        const noise = this.noise(0.2, 'white')
+        const noise = this.noise('white')
         const nf = ctx.createBiquadFilter()
         nf.type = 'bandpass'
         nf.frequency.value = 500
@@ -330,7 +339,7 @@ export class AudioManager {
       (dest) => {
         const ctx = this.ensure()
         const t0 = ctx.currentTime
-        const noise = this.noise(0.4, 'white')
+        const noise = this.noise('white')
         const f = ctx.createBiquadFilter()
         f.type = 'lowpass'
         f.frequency.setValueAtTime(2000, t0)
@@ -471,8 +480,11 @@ export class AudioManager {
     maxDistance = 45,
   ): void {
     const ctx = this.ensure()
+    if (!this.tryVoice(800)) return
     const panner = ctx.createPanner()
-    panner.panningModel = 'HRTF'
+    // equalpower stays positional without the HRTF convolver, which stalls
+    // the audio thread (and then the frame loop) once many shots overlap.
+    panner.panningModel = 'equalpower'
     panner.distanceModel = 'inverse'
     panner.refDistance = 2
     panner.maxDistance = maxDistance
@@ -538,7 +550,7 @@ export class AudioManager {
   private click(gain: number, at?: number, freq = 900): void {
     const ctx = this.ensure()
     const t0 = at ?? ctx.currentTime
-    const noise = this.noise(0.04, 'white')
+    const noise = this.noise('white')
     const f = ctx.createBiquadFilter()
     f.type = 'bandpass'
     f.frequency.value = freq
@@ -553,6 +565,15 @@ export class AudioManager {
     noise.stop(t0 + 0.05)
   }
 
+  private tryVoice(ms: number): boolean {
+    if (this.voices >= this.maxVoices) return false
+    this.voices += 1
+    window.setTimeout(() => {
+      this.voices = Math.max(0, this.voices - 1)
+    }, ms)
+    return true
+  }
+
   private gunshot(p: {
     noiseDur: number
     noiseFreq: number
@@ -561,10 +582,11 @@ export class AudioManager {
     metallic: boolean
     toneFreq: number
   }): void {
+    if (!this.tryVoice(Math.ceil((p.noiseDur + 0.12) * 1000))) return
     const ctx = this.ensure()
     const t0 = ctx.currentTime
 
-    const noise = this.noise(p.noiseDur + 0.02, 'white')
+    const noise = this.noise('white')
     const nFilter = ctx.createBiquadFilter()
     nFilter.type = 'bandpass'
     nFilter.frequency.value = p.noiseFreq
@@ -608,20 +630,28 @@ export class AudioManager {
     }
   }
 
-  private noise(duration: number, kind: NoiseKind): AudioBufferSourceNode {
+  /**
+   * One cached buffer per noise color. Filling a new buffer on every shot
+   * (especially the chain gun) was a main-thread hitch during firefights.
+   */
+  private noise(kind: NoiseKind): AudioBufferSourceNode {
     const ctx = this.ensure()
-    const length = Math.max(1, Math.floor(ctx.sampleRate * duration))
-    const buffer = ctx.createBuffer(1, length, ctx.sampleRate)
-    const data = buffer.getChannelData(0)
-    let last = 0
-    for (let i = 0; i < length; i++) {
-      const white = Math.random() * 2 - 1
-      if (kind === 'brown') {
-        last = (last + 0.02 * white) / 1.02
-        data[i] = last * 3.5
-      } else {
-        data[i] = white
+    let buffer = this.noiseBuffers.get(kind)
+    if (!buffer) {
+      const length = Math.max(1, Math.floor(ctx.sampleRate * 0.5))
+      buffer = ctx.createBuffer(1, length, ctx.sampleRate)
+      const data = buffer.getChannelData(0)
+      let last = 0
+      for (let i = 0; i < length; i++) {
+        const white = Math.random() * 2 - 1
+        if (kind === 'brown') {
+          last = (last + 0.02 * white) / 1.02
+          data[i] = last * 3.5
+        } else {
+          data[i] = white
+        }
       }
+      this.noiseBuffers.set(kind, buffer)
     }
     const src = ctx.createBufferSource()
     src.buffer = buffer

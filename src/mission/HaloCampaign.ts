@@ -115,6 +115,8 @@ export class HaloCampaign {
   private prompt: string | null = null
   private objective = ''
   private readonly fragMat = new THREE.MeshStandardMaterial({ color: 0x556043, roughness: 0.6 })
+  private readonly fragGeo = new THREE.SphereGeometry(0.14, 8, 6)
+  private readonly maxGrenades = 4
 
   constructor(opts: HaloCampaignOptions) {
     this.world = opts.world
@@ -312,7 +314,14 @@ export class HaloCampaign {
     if (this.finished || this.driving || this.grenadeCount <= 0 || !this.damage.alive) return
     this.grenadeCount -= 1
     this.ui.setGrenades(this.grenadeCount)
-    const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 6), this.fragMat)
+    if (this.grenades.length >= this.maxGrenades) {
+      const oldest = this.grenades.shift()
+      if (oldest) {
+        this.explode(oldest.mesh.position)
+        oldest.mesh.removeFromParent()
+      }
+    }
+    const mesh = new THREE.Mesh(this.fragGeo, this.fragMat)
     mesh.position.copy(origin)
     this.world.root.add(mesh)
     const vel = dir.clone().multiplyScalar(15)
@@ -658,7 +667,6 @@ export class HaloCampaign {
       if (g.fuse <= 0) {
         this.explode(g.mesh.position)
         g.mesh.removeFromParent()
-        g.mesh.geometry.dispose()
         this.grenades.splice(i, 1)
       }
     }
@@ -684,10 +692,7 @@ export class HaloCampaign {
   }
 
   private clearGrenades(): void {
-    for (const g of this.grenades) {
-      g.mesh.removeFromParent()
-      g.mesh.geometry.dispose()
-    }
+    for (const g of this.grenades) g.mesh.removeFromParent()
     this.grenades.length = 0
   }
 

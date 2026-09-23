@@ -236,12 +236,15 @@ export class MusicDirector {
   private makeReverbImpulse(seconds: number): AudioBuffer {
     const ctx = this.ctx!
     const rate = ctx.sampleRate
-    const length = Math.floor(rate * seconds)
+    // Keep this short. A multi-second impulse filled with Math.pow on the
+    // main thread froze the first click that started music.
+    const length = Math.floor(rate * Math.min(seconds, 0.7))
     const buffer = ctx.createBuffer(2, length, rate)
     for (let ch = 0; ch < 2; ch++) {
       const data = buffer.getChannelData(ch)
       for (let i = 0; i < length; i++) {
-        data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, 2.4)
+        const t = 1 - i / length
+        data[i] = (Math.random() * 2 - 1) * t * t
       }
     }
     return buffer
