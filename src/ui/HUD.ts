@@ -50,25 +50,6 @@ const HUD_CSS = `
   transition: opacity 0.45s ease;
   user-select: none;
 }
-.rf-hud::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: repeating-linear-gradient(
-    0deg,
-    transparent,
-    transparent 2px,
-    rgba(94, 234, 212, 0.035) 3px
-  );
-  animation: rf-scanline 8s linear infinite;
-  opacity: 0.7;
-  mix-blend-mode: soft-light;
-}
-@keyframes rf-scanline {
-  0% { transform: translateY(0); }
-  100% { transform: translateY(6px); }
-}
 .rf-hud.rf-visible { opacity: 1; }
 
 .rf-hud * { box-sizing: border-box; }
@@ -503,7 +484,7 @@ const HUD_CSS = `
 /* —— Pointer lock hint (Safari drops lock often) —— */
 .rf-lock-hint {
   position: absolute;
-  bottom: 18%;
+  bottom: 32%;
   left: 50%;
   transform: translateX(-50%);
   font-size: 12px;
@@ -930,6 +911,11 @@ export class HUD {
     this.banner.classList.remove('rf-show')
     void this.banner.offsetWidth
     this.banner.classList.add('rf-show')
+  }
+
+  clearBanner(): void {
+    this.banner.classList.remove('rf-show')
+    this.banner.textContent = ''
   }
 
   /** Shown when pointer lock is lost during gameplay (common on Safari). */

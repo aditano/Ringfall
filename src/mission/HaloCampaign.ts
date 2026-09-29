@@ -267,7 +267,7 @@ export class HaloCampaign {
     this.say('Cortana', 'You have no idea how glad I am to see you. I thought you were dead for sure.', 4.2)
     this.say('Cortana', 'The Autumn survived the impact. She is down, but we made it.', 3.8)
     this.say('Cortana', 'We need to find other survivors and regroup.', 3.4)
-    this.ui.showBanner('HALO')
+    this.ui.showBanner('RINGFALL')
   }
 
   respawn(): void {

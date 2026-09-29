@@ -22,8 +22,8 @@ const FONT_ID = 'ringfall-menu-fonts'
 
 const MENU_CSS = `
 .rf-menu {
-  --m-gold: #c4a35a;
-  --m-cyan: #7ec8a0;
+  --m-gold: #e4c98a;
+  --m-cyan: #9ee0c0;
   position: absolute;
   inset: 0;
   z-index: 60;
@@ -46,16 +46,21 @@ const MENU_CSS = `
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(ellipse 70% 55% at 75% 35%, rgba(126, 200, 160, 0.14), transparent 55%),
-    linear-gradient(90deg, rgba(2, 4, 10, 0.82) 0%, rgba(2, 4, 10, 0.35) 42%, transparent 72%);
+    radial-gradient(ellipse 55% 40% at 18% 50%, rgba(8, 16, 22, 0.55), transparent 70%),
+    linear-gradient(90deg, rgba(3, 6, 12, 0.78) 0%, rgba(3, 6, 12, 0.28) 46%, transparent 74%);
   pointer-events: none;
 }
 .rf-menu-panel {
   position: relative;
   z-index: 2;
-  margin-left: clamp(2rem, 8vw, 6rem);
-  max-width: 28rem;
+  margin-left: clamp(1.4rem, 6vw, 4.5rem);
+  max-width: 30rem;
+  padding: 1.6rem 1.7rem 1.35rem;
   text-align: left;
+  border: 1px solid rgba(180, 220, 200, 0.18);
+  background: linear-gradient(180deg, rgba(8, 14, 20, 0.62), rgba(6, 10, 16, 0.38));
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(10px);
   animation: rf-ce-in 1.1s ease both;
 }
 .rf-menu-eyebrow {
@@ -69,21 +74,30 @@ const MENU_CSS = `
 .rf-menu-title {
   font-family: "Orbitron", sans-serif;
   font-weight: 700;
-  font-size: clamp(2.8rem, 8vw, 4.8rem);
-  letter-spacing: 0.14em;
+  font-size: clamp(2.6rem, 7vw, 4.4rem);
+  letter-spacing: 0.18em;
   line-height: 0.95;
-  color: #f2f6f2;
-  text-shadow: 0 0 28px rgba(126, 200, 160, 0.35), 0 2px 0 rgba(0,0,0,0.55);
+  color: #f7faf6;
+  text-shadow: 0 0 32px rgba(158, 224, 192, 0.28), 0 2px 0 rgba(0,0,0,0.55);
   margin: 0 0 0.75rem;
 }
 .rf-menu-sub {
-  font-size: 1.05rem;
+  font-size: 1.08rem;
   font-weight: 500;
-  letter-spacing: 0.06em;
-  color: rgba(210, 230, 215, 0.72);
-  margin: 0 0 1.75rem;
-  max-width: 22rem;
+  letter-spacing: 0.04em;
+  color: rgba(226, 236, 228, 0.78);
+  margin: 0 0 1.35rem;
+  max-width: 24rem;
 }
+.rf-menu-status {
+  margin: 0 0 0.9rem;
+  font-family: "Orbitron", sans-serif;
+  font-size: 0.68rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--m-gold);
+}
+.rf-menu-status[hidden] { display: none; }
 .rf-menu-actions {
   display: flex;
   flex-direction: column;
@@ -98,31 +112,60 @@ const MENU_CSS = `
   text-transform: uppercase;
   padding: 0.85rem 1.6rem;
   min-width: 14rem;
-  border: 1px solid rgba(126, 200, 160, 0.45);
-  background: linear-gradient(180deg, rgba(126, 200, 160, 0.16), rgba(8, 16, 12, 0.35));
+  border: 1px solid rgba(158, 224, 192, 0.5);
+  background: linear-gradient(180deg, rgba(158, 224, 192, 0.2), rgba(8, 16, 12, 0.4));
   color: #f2f6f2;
   cursor: pointer;
   pointer-events: auto;
   position: relative;
   z-index: 3;
-  transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease, border-color 0.2s;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease, border-color 0.2s, opacity 0.2s;
 }
-.rf-menu-btn:hover {
+.rf-menu-btn:hover:not(:disabled) {
   transform: translateX(4px);
-  border-color: rgba(196, 163, 90, 0.75);
-  box-shadow: 0 0 28px rgba(126, 200, 160, 0.22);
-  background: linear-gradient(180deg, rgba(196, 163, 90, 0.22), rgba(126, 200, 160, 0.1));
+  border-color: rgba(228, 201, 138, 0.85);
+  box-shadow: 0 0 28px rgba(158, 224, 192, 0.22);
+  background: linear-gradient(180deg, rgba(228, 201, 138, 0.24), rgba(158, 224, 192, 0.12));
+}
+.rf-menu-btn:disabled {
+  cursor: progress;
+  opacity: 0.55;
 }
 .rf-menu-btn.rf-ghost {
-  border-color: rgba(180, 200, 190, 0.25);
-  background: transparent;
+  border-color: rgba(180, 200, 190, 0.28);
+  background: rgba(8, 12, 16, 0.25);
 }
 .rf-menu-hint {
-  margin-top: 1.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.55rem;
+  margin-top: 1.35rem;
   font-size: 0.78rem;
-  letter-spacing: 0.08em;
-  color: rgba(170, 200, 185, 0.45);
+  letter-spacing: 0.06em;
+  color: rgba(190, 214, 200, 0.72);
 }
+.rf-key {
+  display: inline-block;
+  padding: 0.05rem 0.4rem;
+  border: 1px solid rgba(228, 201, 138, 0.4);
+  border-bottom-width: 2px;
+  background: rgba(8, 12, 16, 0.55);
+  color: #f4efe2;
+  font-family: "Orbitron", sans-serif;
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+}
+.rf-menu-credits {
+  margin: 1.1rem 0 0;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  color: rgba(180, 200, 190, 0.55);
+}
+.rf-menu-credits a {
+  color: rgba(158, 224, 192, 0.85);
+  text-decoration: none;
+}
+.rf-menu-credits a:hover { text-decoration: underline; }
 @keyframes rf-ce-in {
   from { opacity: 0; transform: translateY(14px); }
   to { opacity: 1; transform: translateY(0); }
@@ -187,20 +230,27 @@ export class MainMenu {
     const parent = opts.parent ?? document.body
     this.root = document.createElement('div')
     this.root.className = 'rf-menu'
+    this.root.dataset.state = 'ready'
     this.root.setAttribute('role', 'dialog')
     this.root.setAttribute('aria-label', 'Main menu')
 
     this.root.innerHTML = `
       <div class="rf-menu-bg"></div>
       <div class="rf-menu-panel">
-        <div class="rf-menu-eyebrow">Pillar of Autumn</div>
+        <div class="rf-menu-eyebrow">Ringworld</div>
         <h1 class="rf-menu-title">${escapeHtml(title)}</h1>
         <p class="rf-menu-sub">${escapeHtml(subtitle)}</p>
+        <p class="rf-menu-status" hidden></p>
         <div class="rf-menu-actions">
           <button type="button" class="rf-menu-btn rf-play">Campaign</button>
           <button type="button" class="rf-menu-btn rf-ghost rf-settings-open">Settings</button>
         </div>
-        <p class="rf-menu-hint">${escapeHtml(prefersTouchInput() ? 'Stick move · Drag look · Fire · Use · Frag' : 'WASD · Mouse · LMB fire · E use · G grenade · F turret')}</p>
+        <p class="rf-menu-hint">${
+          prefersTouchInput()
+            ? '<span class="rf-key">Stick</span> move <span class="rf-key">Drag</span> look <span class="rf-key">Fire</span> <span class="rf-key">Use</span> <span class="rf-key">Frag</span>'
+            : '<span class="rf-key">WASD</span> move <span class="rf-key">Mouse</span> look <span class="rf-key">LMB</span> fire <span class="rf-key">E</span> use <span class="rf-key">G</span> frag'
+        }</p>
+        <p class="rf-menu-credits">Terrain, props, and sky from <a href="https://polyhaven.com" target="_blank" rel="noopener noreferrer">Poly Haven</a> · CC0</p>
       </div>
     `
 
@@ -227,6 +277,26 @@ export class MainMenu {
 
   setPointerLockTarget(el: HTMLElement | null): void {
     this.pointerLockTarget = el
+  }
+
+  /** Disable Campaign while the CC0 library is still streaming in. */
+  setBusy(message: string | null): void {
+    const status = this.root.querySelector('.rf-menu-status') as HTMLElement | null
+    if (message) {
+      if (status) {
+        status.hidden = false
+        status.textContent = message
+      }
+      this.playBtn.disabled = true
+      this.root.dataset.state = 'loading'
+      return
+    }
+    if (status) {
+      status.hidden = true
+      status.textContent = ''
+    }
+    this.playBtn.disabled = false
+    this.root.dataset.state = 'ready'
   }
 
   show(): void {

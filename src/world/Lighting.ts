@@ -36,14 +36,14 @@ export function setupLighting(
   const shadowSize = options.shadowMapSize ?? 2048;
   const shadowReach = Math.min(56, Math.max(36, arenaRadius * 0.6));
 
-  // Balanced key — readable outdoors without blowing out mids.
-  const sun = new THREE.DirectionalLight(0xffe8cc, 1.65);
-  sun.position.set(42, 85, 22);
+  // Key matches the sky disc: forward and a little right, low enough to read on the valley.
+  const sun = new THREE.DirectionalLight(0xfff1d0, 1.65);
+  sun.position.set(22, 58, 46);
   sun.castShadow = true;
   sun.shadow.mapSize.set(shadowSize, shadowSize);
-  sun.shadow.bias = -0.00012;
-  sun.shadow.normalBias = 0.04;
-  sun.shadow.radius = 2.5;
+  sun.shadow.bias = -0.00018;
+  sun.shadow.normalBias = 0.045;
+  sun.shadow.radius = 4;
   // Fixed frustum. Rebuilding this matrix every frame dirties the shadow pass
   // even when the covered area has not changed.
   sun.shadow.camera.near = 1;
@@ -57,18 +57,17 @@ export function setupLighting(
   scene.add(sun.target);
   sun.target.position.set(0, 0, 0);
 
-  // Cool teal fill from opposite sky.
-  const fill = new THREE.DirectionalLight(0xa8dff0, 0.52);
+  // Cool sky fill from the opposite side of the key.
+  const fill = new THREE.DirectionalLight(0x9ec4e6, 0.22);
   fill.position.set(-36, 28, -42);
   fill.castShadow = false;
   scene.add(fill);
 
-  // Sky / ground bounce.
-  const hemi = new THREE.HemisphereLight(0x8ed4e8, 0x5a6a48, 0.62);
+  // Sky / ground bounce. Kept low so the key and shadows stay readable.
+  const hemi = new THREE.HemisphereLight(0x8ec6ea, 0x4e6a38, 0.22);
   scene.add(hemi);
 
-  // Soft contact-ish ambient so shadowed cover stays readable for FPS play.
-  const ambient = new THREE.AmbientLight(0xc8e4f0, 0.26);
+  const ambient = new THREE.AmbientLight(0xc5d8e8, 0.08);
   scene.add(ambient);
 
   const lightShafts = new THREE.Group();
@@ -138,7 +137,7 @@ export function setupLighting(
         if (!Number.isFinite(shadowFocusX) || dx * dx + dz * dz > 36) {
           shadowFocusX = focus.x
           shadowFocusZ = focus.z
-          sun.position.set(focus.x + 28, 62, focus.z + 14)
+          sun.position.set(focus.x + 22, 58, focus.z + 46)
           sun.target.position.set(focus.x, focus.y, focus.z)
           sun.target.updateMatrixWorld()
         }

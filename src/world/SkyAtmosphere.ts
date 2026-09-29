@@ -44,7 +44,7 @@ void main() {
   float h = dir.y;
 
   // Combat Evolved daytime: blue zenith, pale horizon.
-  float horizonBlend = smoothstep(-0.05, 0.35, h);
+  float horizonBlend = smoothstep(-0.02, 0.22, h);
   float groundBlend = smoothstep(-0.25, 0.02, h);
   vec3 col = mix(uGround, uHorizon, groundBlend);
   col = mix(col, uZenith, horizonBlend);
@@ -72,20 +72,20 @@ export function createSkyAtmosphere(
 ): SkyAtmosphere {
   const radius = options.radius ?? 900;
 
-  const zenith = new THREE.Color(0x3c86d4);
-  const horizon = new THREE.Color(0xc5e4f6);
-  const ground = new THREE.Color(0x7eae78);
-  const fogColor = new THREE.Color(0xb7d4ea);
+  const zenith = new THREE.Color(0x1a6ec8);
+  const horizon = new THREE.Color(0x9ecff2);
+  const ground = new THREE.Color(0x6f9a62);
+  const fogColor = new THREE.Color(0xa9c6df);
 
-  const sunDirection = new THREE.Vector3(42, 85, 22).normalize();
+  const sunDirection = new THREE.Vector3(22, 58, 46).normalize();
 
   const uniforms = {
     uZenith: { value: zenith },
     uHorizon: { value: horizon },
     uGround: { value: ground },
     uSunDirection: { value: sunDirection.clone() },
-    uSunIntensity: { value: 0.52 },
-    uGlowPower: { value: 32.0 },
+    uSunIntensity: { value: 0.55 },
+    uGlowPower: { value: 28.0 },
   };
 
   const skyMat = new THREE.ShaderMaterial({
@@ -94,6 +94,7 @@ export function createSkyAtmosphere(
     fragmentShader: skyFragmentShader,
     side: THREE.BackSide,
     depthWrite: false,
+    fog: false,
   });
 
   const sky = new THREE.Mesh(new THREE.SphereGeometry(radius, 48, 24), skyMat);
@@ -114,17 +115,19 @@ export function createSkyAtmosphere(
     }),
   );
   sunDisc.name = 'SunDisc';
-  sunDisc.position.copy(sunDirection).multiplyScalar(radius * 0.92);
+  sunDisc.position.copy(sunDirection).multiplyScalar(radius * 0.86);
   sunDisc.lookAt(0, 0, 0);
   sunDisc.renderOrder = -9;
   scene.add(sunDisc);
 
-  // Distant ring-world curvature — suggests the Halo arc on the horizon.
-  const ringBand = createRingWorldBand(radius * 0.88);
+  // The ring arcs across the sky in front of the valley, not in the camera plane.
+  const ringBand = createRingWorldBand();
+  const farArc = createFarArc();
   scene.add(ringBand);
+  scene.add(farArc);
 
-  scene.fog = new THREE.FogExp2(0xb7d4ea, 0.00145);
-  scene.background = new THREE.Color(0x7eb6de);
+  scene.fog = new THREE.FogExp2(0xa9c6df, 0.00095);
+  scene.background = new THREE.Color(0x7eb6e4);
 
   return {
     sky,
@@ -133,19 +136,22 @@ export function createSkyAtmosphere(
     fogColor,
     update(camera: THREE.Camera) {
       sky.position.copy(camera.position);
-      // Keep band locked to camera XZ so it always reads as distant horizon.
-      ringBand.position.x = camera.position.x;
-      ringBand.position.z = camera.position.z;
+      sunDisc.position.copy(camera.position).addScaledVector(sunDirection, radius * 0.86);
+      sunDisc.lookAt(camera.position);
+      ringBand.position.set(camera.position.x + 520, -740, camera.position.z);
+      farArc.position.set(camera.position.x + 520, -740, camera.position.z);
     },
     dispose() {
       scene.remove(sky);
       scene.remove(sunDisc);
       scene.remove(ringBand);
+      scene.remove(farArc);
       sky.geometry.dispose();
       skyMat.dispose();
       sunDisc.geometry.dispose();
       (sunDisc.material as THREE.Material).dispose();
       disposeObject3D(ringBand);
+      disposeObject3D(farArc);
       scene.fog = null;
     },
   };
@@ -164,24 +170,19 @@ varying vec2 vUv;
 void main() {
   float across = vUv.y;
   float along = vUv.x;
-  float landBand = smoothstep(0.08, 0.22, across) * smoothstep(0.96, 0.72, across);
-  float n = fract(sin(dot(vec2(along * 40.0, across * 8.0), vec2(12.9898, 78.233))) * 43758.5453);
-  vec3 land = mix(vec3(0.28, 0.46, 0.24), vec3(0.48, 0.42, 0.26), n);
-  land = mix(land, vec3(0.22, 0.34, 0.22), smoothstep(0.45, 0.7, n));
-  vec3 rim = vec3(0.62, 0.68, 0.72);
-  vec3 edge = vec3(0.12, 0.16, 0.2);
-  vec3 col = mix(edge, rim, smoothstep(0.0, 0.12, across));
-  col = mix(col, land, landBand);
-  float streak = smoothstep(0.72, 1.0, sin(along * 90.0) * 0.5 + 0.5);
-  col += vec3(0.15, 0.18, 0.12) * streak * landBand * 0.35;
+  float rim = smoothstep(0.0, 0.07, across) * smoothstep(1.0, 0.9, across);
+  float n = fract(sin(dot(vec2(along * 48.0, across * 6.0), vec2(12.9898, 78.233))) * 43758.5453);
+  vec3 land = mix(vec3(0.18, 0.5, 0.16), vec3(0.45, 0.38, 0.18), n);
+  land = mix(land, vec3(0.22, 0.36, 0.18), smoothstep(0.55, 0.85, n));
+  float shade = 0.82 + 0.18 * sin(along * 30.0 + across * 8.0);
+  vec3 col = mix(vec3(0.07, 0.09, 0.11), land * shade, rim);
   gl_FragColor = vec4(col, 1.0);
 }
 `;
 
-function createRingWorldBand(_radius: number): THREE.Mesh {
-  // Upper arc of Installation 04, locked to the camera like the CE skybox.
-  // The ring lies in the YZ plane so it spans left-right when looking down the valley (+X).
-  const geo = new THREE.RingGeometry(820, 1280, 96, 1, Math.PI * 0.02, Math.PI * 0.96);
+function createRingWorldBand(): THREE.Mesh {
+  // Upper arc. After a 90° yaw the ring stands in the YZ plane, ahead of the camera.
+  const geo = new THREE.RingGeometry(900, 1120, 180, 1, 0.02, Math.PI - 0.04);
   const mat = new THREE.ShaderMaterial({
     vertexShader: ringVertex,
     fragmentShader: ringFragment,
@@ -192,9 +193,27 @@ function createRingWorldBand(_radius: number): THREE.Mesh {
   const mesh = new THREE.Mesh(geo, mat);
   mesh.name = 'RingWorldBand';
   mesh.rotation.y = Math.PI / 2;
-  mesh.rotation.z = 0.08;
-  mesh.position.y = -40;
   mesh.renderOrder = -8;
+  mesh.frustumCulled = false;
+  return mesh;
+}
+
+function createFarArc(): THREE.Mesh {
+  const geo = new THREE.RingGeometry(180, 230, 96, 1, Math.PI * 0.18, Math.PI * 0.64);
+  const mat = new THREE.ShaderMaterial({
+    vertexShader: ringVertex,
+    fragmentShader: ringFragment,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+    fog: false,
+    transparent: true,
+    opacity: 0.22,
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.name = 'RingWorldFarArc';
+  mesh.rotation.y = Math.PI / 2;
+  mesh.renderOrder = -8;
+  mesh.frustumCulled = false;
   return mesh;
 }
 

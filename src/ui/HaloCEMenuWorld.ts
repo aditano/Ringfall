@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { dressStandard, type RingfallAssets, type TextureSet } from '../rendering/AssetLibrary'
 
 /**
  * Halo: Combat Evolved–inspired title backdrop:
@@ -9,6 +10,9 @@ export class HaloCEMenuWorld {
   private readonly ringPivot = new THREE.Group()
   private readonly stars: THREE.Points
   private readonly planet: THREE.Mesh
+  private torusMesh: THREE.Mesh | null = null
+  private innerBand: THREE.Mesh | null = null
+  private readonly plates: THREE.Mesh[] = []
   private readonly rimLight: THREE.DirectionalLight
   private readonly fill: THREE.AmbientLight
   private readonly hemi: THREE.HemisphereLight
@@ -45,25 +49,6 @@ export class HaloCEMenuWorld {
     this.ringPivot.rotation.x = 0.55
     this.ringPivot.rotation.z = -0.25
     this.root.add(this.ringPivot)
-
-    // Soft nebula planes
-    for (let i = 0; i < 3; i++) {
-      const neb = new THREE.Mesh(
-        new THREE.PlaneGeometry(80, 50),
-        new THREE.MeshBasicMaterial({
-          color: i % 2 ? 0x1a3048 : 0x2a1840,
-          transparent: true,
-          opacity: 0.08,
-          depthWrite: false,
-          blending: THREE.AdditiveBlending,
-          side: THREE.DoubleSide,
-          forceSinglePass: true,
-        }),
-      )
-      neb.position.set((i - 1) * 25, (i - 1) * 8, -60 - i * 10)
-      neb.rotation.z = i * 0.4
-      this.root.add(neb)
-    }
 
     scene.add(this.root)
   }
@@ -110,6 +95,53 @@ export class HaloCEMenuWorld {
       camera.fov = nextFov
       camera.updateProjectionMatrix()
     }
+  }
+
+  /** Swap the flat title meshes for tiled CC0 metal and ground. */
+  dress(assets: RingfallAssets): void {
+    if (this.torusMesh) {
+      const mat = this.torusMesh.material as THREE.MeshStandardMaterial
+      dressStandard(mat, tiled(assets.concrete, 3, 36), {
+        color: 0xffffff,
+        metalness: 0.62,
+        roughness: 0.42,
+        envMapIntensity: 1.15,
+        emissiveIntensity: 0.04,
+        normalScale: 0.7,
+      })
+    }
+    if (this.innerBand) {
+      const mat = this.innerBand.material as THREE.MeshStandardMaterial
+      dressStandard(mat, tiled(assets.grass, 2, 28), {
+        color: 0xffffff,
+        metalness: 0.04,
+        roughness: 0.88,
+        envMapIntensity: 0.4,
+        emissiveIntensity: 0.06,
+        normalScale: 0.8,
+      })
+    }
+    for (const plate of this.plates) {
+      const mat = plate.material as THREE.MeshStandardMaterial
+      const lit = mat.emissiveIntensity > 0.1
+      dressStandard(mat, lit ? assets.forerunner : assets.concrete, {
+        color: 0xffffff,
+        metalness: lit ? 0.78 : 0.5,
+        roughness: lit ? 0.32 : 0.48,
+        envMapIntensity: 1.05,
+        emissiveIntensity: lit ? 0.4 : 0.02,
+        normalScale: 0.65,
+      })
+    }
+    const planetMat = this.planet.material as THREE.MeshStandardMaterial
+    dressStandard(planetMat, tiled(assets.grass, 4, 2), {
+      color: 0xffffff,
+      metalness: 0.02,
+      roughness: 0.92,
+      envMapIntensity: 0.35,
+      emissiveIntensity: 0.08,
+      normalScale: 0.75,
+    })
   }
 
   dispose(): void {
@@ -211,6 +243,7 @@ export class HaloCEMenuWorld {
       }),
     )
     torus.castShadow = false
+    this.torusMesh = torus
     g.add(torus)
 
     // Inner livable surface suggestion (greener band)
@@ -225,6 +258,7 @@ export class HaloCEMenuWorld {
       }),
     )
     inner.scale.set(1, 1, 1.02)
+    this.innerBand = inner
     g.add(inner)
 
     // Segment plates around the ring
@@ -243,6 +277,7 @@ export class HaloCEMenuWorld {
       plate.position.set(Math.cos(a) * 9, 0, Math.sin(a) * 9)
       plate.lookAt(0, 0, 0)
       plate.rotateX(Math.PI / 2)
+      this.plates.push(plate)
       g.add(plate)
     }
 
@@ -261,4 +296,16 @@ export class HaloCEMenuWorld {
 
     return g
   }
+}
+
+function tiled(set: TextureSet, repeatU: number, repeatV: number): TextureSet {
+  const clone = (tex: THREE.Texture): THREE.Texture => {
+    const next = tex.clone()
+    next.wrapS = THREE.RepeatWrapping
+    next.wrapT = THREE.RepeatWrapping
+    next.repeat.set(repeatU, repeatV)
+    next.needsUpdate = true
+    return next
+  }
+  return { map: clone(set.map), normal: clone(set.normal), rough: clone(set.rough) }
 }
