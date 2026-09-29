@@ -17,6 +17,7 @@ export interface UserSettings {
   resolutionScale: number
   shadows: ShadowQuality
   bloom: boolean
+  ssao: boolean
   antialiasing: AntialiasingMode
   vignette: boolean
   lightShafts: boolean
@@ -35,6 +36,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
   resolutionScale: 1,
   shadows: 'medium',
   bloom: true,
+  ssao: true,
   antialiasing: 'smaa',
   vignette: true,
   lightShafts: true,
@@ -50,6 +52,7 @@ const PRESET_DEFAULTS: Record<Exclude<GraphicsPreset, 'auto' | 'custom'>, Partia
     resolutionScale: 0.85,
     shadows: 'low',
     bloom: false,
+    ssao: false,
     antialiasing: 'off',
     vignette: false,
     lightShafts: false,
@@ -59,6 +62,7 @@ const PRESET_DEFAULTS: Record<Exclude<GraphicsPreset, 'auto' | 'custom'>, Partia
     resolutionScale: 1,
     shadows: 'medium',
     bloom: true,
+    ssao: false,
     antialiasing: 'off',
     vignette: true,
     lightShafts: false,
@@ -68,6 +72,7 @@ const PRESET_DEFAULTS: Record<Exclude<GraphicsPreset, 'auto' | 'custom'>, Partia
     resolutionScale: 1.15,
     shadows: 'high',
     bloom: true,
+    ssao: true,
     antialiasing: 'smaa',
     vignette: true,
     lightShafts: true,
@@ -77,6 +82,7 @@ const PRESET_DEFAULTS: Record<Exclude<GraphicsPreset, 'auto' | 'custom'>, Partia
     resolutionScale: 1.25,
     shadows: 'high',
     bloom: true,
+    ssao: true,
     antialiasing: 'smaa',
     vignette: true,
     lightShafts: true,
@@ -130,6 +136,7 @@ export class GameSettings {
         partial.resolutionScale !== undefined ||
         partial.shadows !== undefined ||
         partial.bloom !== undefined ||
+        partial.ssao !== undefined ||
         partial.antialiasing !== undefined ||
         partial.vignette !== undefined ||
         partial.lightShafts !== undefined ||
@@ -162,6 +169,11 @@ export class GameSettings {
       if (!raw) return
       const parsed = JSON.parse(raw) as Partial<UserSettings>
       this.settings = { ...DEFAULT_SETTINGS, ...parsed }
+      if (parsed.ssao === undefined) {
+        const preset = this.settings.graphicsPreset
+        this.settings.ssao =
+          preset === 'high' || preset === 'ultra' || (preset === 'auto' && detectPerformanceSettings().enableSSAO)
+      }
 
       // Desktop ultra/high presets blow the mobile GPU budget and drop the WebGL context.
       const tooHeavy =
@@ -205,6 +217,7 @@ export class GameSettings {
       resolutionScale: auto.maxPixelRatio / Math.max(1, window.devicePixelRatio || 1),
       shadows: auto.shadowMapSize >= 2048 ? 'high' : auto.shadowMapSize >= 1024 ? 'medium' : 'low',
       bloom: auto.enableBloom,
+      ssao: auto.enableSSAO,
       antialiasing: auto.enableSMAA ? 'smaa' : 'off',
       vignette: auto.enableVignette,
       lightShafts: auto.lightShafts,
@@ -223,14 +236,15 @@ export class GameSettings {
       maxPixelRatio: Math.max(0.75, maxPixelRatio),
       shadowMapSize: mapSize,
       enableBloom: s.bloom,
-      bloomScale: tier === 'high' ? 0.55 : 0.45,
+      bloomScale: tier === 'high' ? 0.5 : 0.45,
       enableSMAA: s.antialiasing === 'smaa',
       enableVignette: s.vignette,
+      enableSSAO: s.ssao,
       lightShafts: s.lightShafts,
       environmentMap: s.environmentReflections,
       crosshairRayInterval: tier === 'high' ? 2 : tier === 'medium' ? 4 : 8,
       hudSyncInterval: tier === 'high' ? 1 / 30 : tier === 'medium' ? 1 / 20 : 1 / 12,
-      toneMappingExposure: tier === 'high' ? 0.95 : tier === 'medium' ? 0.92 : 0.88,
+      toneMappingExposure: tier === 'high' ? 1 : tier === 'medium' ? 0.98 : 0.96,
     }
   }
 }

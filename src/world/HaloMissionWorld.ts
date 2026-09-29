@@ -8,8 +8,12 @@ import {
   createTerrainVertexColored,
   createUnscMatte,
 } from '../rendering/Materials'
+import { dressStandard, type RingfallAssets } from '../rendering/AssetLibrary'
+import { createSplatTerrainMaterial } from '../rendering/TerrainMaterial'
+import { tileSurfaceUvs } from '../rendering/tileUvs'
 import { COVER, HOG_SPAWN, PELICAN_PAD, PICKUPS, SHADE_POST, SPAWN, type PickupDef } from '../mission/layout'
 import { pointInBoxes } from './Raycast'
+import { installProps, type ScatterLayout } from './installProps'
 
 export interface WorldPickup {
   def: PickupDef
@@ -36,6 +40,8 @@ export interface HaloWorld {
   pickups: WorldPickup[]
   update: (dt: number) => void
   solidAt: (p: THREE.Vector3) => boolean
+  /** Swap procedural surfaces for the CC0 library once it has loaded. */
+  dress: (assets: RingfallAssets) => void
   dispose: () => void
 }
 
@@ -128,9 +134,10 @@ export function buildHaloMission(scene: THREE.Scene): HaloWorld {
   const colliders: AABB[] = []
   const pickups: WorldPickup[] = []
 
-  root.add(buildTerrain())
+  const terrain = buildTerrain()
+  root.add(terrain)
   buildStream(root)
-  buildScatter(root, colliders)
+  const layout = buildScatter(root, colliders)
   buildLifeboat(root, colliders)
   buildAutumn(root)
   buildPylons(root, colliders)
@@ -168,6 +175,9 @@ export function buildHaloMission(scene: THREE.Scene): HaloWorld {
     pickups,
     update(dt: number) {
       time += dt
+      const stream = root.getObjectByName('Stream') as THREE.Mesh | undefined
+      const water = stream?.userData.waterNormal as THREE.Texture | undefined
+      if (water) water.offset.x = time * 0.035
       const attr = smoke.geometry.getAttribute('position') as THREE.BufferAttribute
       for (let i = 0; i < attr.count; i++) {
         let y = attr.getY(i) + dt * (1.6 + (i % 5) * 0.35)
@@ -185,6 +195,58 @@ export function buildHaloMission(scene: THREE.Scene): HaloWorld {
     },
     solidAt(p: THREE.Vector3) {
       return pointInBoxes(p, colliders, 0.02)
+    },
+    dress(assets: RingfallAssets) {
+      dressStandard(FORERUNNER, assets.forerunner, {
+        color: 0xffffff,
+        metalness: 0.72,
+        roughness: 0.85,
+        envMapIntensity: 0.95,
+        emissiveIntensity: 0.045,
+        normalScale: 0.7,
+      })
+      dressStandard(FORERUNNER_DARK, assets.concrete, {
+        color: 0xd5dbe0,
+        metalness: 0.28,
+        roughness: 1,
+        envMapIntensity: 0.55,
+        emissiveIntensity: 0.02,
+        normalScale: 0.85,
+      })
+      dressStandard(OLIVE, assets.unsc, {
+        color: 0xa3ad8e,
+        metalness: 0.22,
+        roughness: 0.72,
+        envMapIntensity: 0.45,
+        normalScale: 0.6,
+        useRoughnessMap: false,
+      })
+      dressStandard(OLIVE_DARK, assets.unsc, {
+        color: 0x9aa48c,
+        metalness: 0.12,
+        roughness: 0.82,
+        envMapIntensity: 0.4,
+        normalScale: 0.15,
+        useRoughnessMap: false,
+      })
+      OLIVE_DARK.side = THREE.DoubleSide
+      dressStandard(CRATE, assets.unsc, {
+        color: 0x8d9478,
+        metalness: 0.35,
+        roughness: 0.6,
+        envMapIntensity: 0.5,
+        useRoughnessMap: false,
+      })
+      terrain.material = createSplatTerrainMaterial({
+        grass: assets.grass,
+        dirt: assets.dirt,
+        rock: assets.rock,
+        sand: assets.sand,
+        metal: assets.forerunner,
+      })
+      terrain.castShadow = false
+      terrain.receiveShadow = true
+      installProps(root, layout, assets, pickups, haloHeight)
     },
     dispose() {
       scene.remove(root)
@@ -235,7 +297,51 @@ function buildTerrain(): THREE.Mesh {
     colors[i * 3 + 1] = tint.g
     colors[i * 3 + 2] = tint.b
   }
+  const splat = new Float32Array(pos.count * 4)
+  const uv = geo.getAttribute('uv') as THREE.BufferAttribute
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i)
+    const z = pos.getZ(i)
+    uv.setXY(i, x / 6.5, z / 6.5)
+    const slope = Math.abs(haloHeight(x + 2, z) - pos.getY(i)) + Math.abs(haloHeight(x, z + 2) - pos.getY(i))
+    const n = Math.sin(x * 0.37) * Math.cos(z * 0.41)
+    const interior = x > 496 && x < 608 && Math.abs(z) < 12
+    const path = Math.abs(z) < 4.2 && x > 30 && x < 470
+    const beach = x > 660 && Math.abs(z) < 16
+    let grass = 0
+    let dirt = 0
+    let rock = 0
+    let sand = 0
+    if (interior) {
+      // metal weight is the remainder
+    } else if (slope > 2.4) {
+      rock = 0.85
+      grass = 0.15
+    } else if (beach) {
+      sand = 0.72
+      grass = 0.28
+    } else if (path) {
+      dirt = 0.7
+      grass = 0.3
+    } else if (slope > 1.35) {
+      rock = 0.22
+      grass = 0.62
+      dirt = 0.16
+    } else if (n > 0.35) {
+      grass = 0.62
+      dirt = 0.38
+    } else {
+      grass = 0.9
+      dirt = 0.1
+    }
+    splat[i * 4] = grass
+    splat[i * 4 + 1] = dirt
+    splat[i * 4 + 2] = rock
+    splat[i * 4 + 3] = sand
+  }
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+  geo.setAttribute('splat', new THREE.BufferAttribute(splat, 4))
+  uv.needsUpdate = true
   geo.computeVertexNormals()
   const mesh = new THREE.Mesh(geo, createTerrainVertexColored())
   mesh.name = 'HaloTerrain'
@@ -265,81 +371,122 @@ function buildStream(root: THREE.Group): void {
   root.add(mesh)
 }
 
-function buildScatter(root: THREE.Group, colliders: AABB[]): void {
+function buildScatter(root: THREE.Group, colliders: AABB[]): ScatterLayout {
   const rng = mulberry32(7)
+  const layout: ScatterLayout = {
+    coverRocks: [],
+    crates: [],
+    rocks: [],
+    trees: [],
+    grass: [],
+    ferns: [],
+    shrubs: [],
+  }
+  const placeholders = new THREE.Group()
+  placeholders.name = 'PlaceholderScatter'
+  root.add(placeholders)
+
   for (const c of COVER) {
+    const yaw = c.x * 0.17
     const y = haloHeight(c.x, c.z)
     if (c.crate) {
+      layout.crates.push({ x: c.x, z: c.z, s: c.s, yaw })
       const crate = new THREE.Mesh(new THREE.BoxGeometry(c.s * 1.3, c.s, c.s * 0.9), CRATE)
       crate.position.set(c.x, y + c.s * 0.5, c.z)
       crate.castShadow = true
       crate.receiveShadow = true
-      root.add(crate)
+      placeholders.add(crate)
       addCollider(colliders, c.x, y + c.s * 0.5, c.z, c.s * 1.3, c.s, c.s * 0.9)
     } else {
-      addRock(root, colliders, c.x, c.z, c.s, true)
+      layout.coverRocks.push({ x: c.x, z: c.z, s: c.s, yaw })
+      addRock(placeholders, colliders, c.x, c.z, c.s, true, yaw)
     }
   }
-  for (let i = 0; i < 36; i++) {
+  for (let i = 0; i < 42; i++) {
     const x = -20 + rng() * 760
     const z = (rng() > 0.5 ? 1 : -1) * (8 + rng() * 18)
     if (x > 480 && x < 630) continue
     if (Math.abs(z) < 3.2 && x > 20 && x < 470) continue
-    addRock(root, colliders, x, z, 0.55 + rng() * 0.7, false)
+    const s = 0.55 + rng() * 0.85
+    const yaw = rng() * Math.PI * 2
+    layout.rocks.push({ x, z, s, yaw })
+    addRock(placeholders, colliders, x, z, s, false, yaw)
   }
-  for (let i = 0; i < 22; i++) {
-    const x = 20 + rng() * 430
-    const z = (rng() > 0.5 ? 1 : -1) * (12 + rng() * 16)
-    if (x > 470 && x < 640) continue
-    addTree(root, x, z, 0.85 + rng() * 0.6)
+  for (let i = 0; i < 34; i++) {
+    const x = 24 + rng() * 620
+    const z = (rng() > 0.5 ? 1 : -1) * (11 + rng() * 18)
+    if (x > 470 && x < 650) continue
+    if (Math.abs(z) < 4 && x < 500) continue
+    const s = rng()
+    const yaw = rng() * Math.PI * 2
+    layout.trees.push({ x, z, s, yaw })
+    addTree(placeholders, x, z, 0.9 + s * 0.5, yaw)
   }
+  for (let i = 0; i < 110; i++) {
+    const x = -10 + rng() * 700
+    const z = (rng() - 0.5) * 34
+    if (Math.abs(z) < 2.6 && x > 30 && x < 480) continue
+    if (x > 490 && x < 640) continue
+    layout.grass.push({ x, z, s: rng(), yaw: rng() * Math.PI })
+  }
+  for (let i = 0; i < 28; i++) {
+    const x = rng() * 680
+    const z = (rng() > 0.5 ? 1 : -1) * (6 + rng() * 20)
+    if (x > 490 && x < 640) continue
+    layout.ferns.push({ x, z, s: rng(), yaw: rng() * Math.PI })
+  }
+  for (let i = 0; i < 20; i++) {
+    const x = 30 + rng() * 640
+    const z = (rng() > 0.5 ? 1 : -1) * (9 + rng() * 18)
+    if (x > 480 && x < 650) continue
+    layout.shrubs.push({ x, z, s: rng(), yaw: rng() * Math.PI })
+  }
+
   const grassGeo = new THREE.ConeGeometry(0.22, 0.7, 4)
   const grassMat = new THREE.MeshStandardMaterial({ color: 0x3e7a32, roughness: 1 })
-  const grass = new THREE.InstancedMesh(grassGeo, grassMat, 200)
+  const grass = new THREE.InstancedMesh(grassGeo, grassMat, Math.max(1, layout.grass.length))
   const dummy = new THREE.Object3D()
-  let n = 0
-  for (let i = 0; i < 200; i++) {
-    const x = rng() * 450
-    const z = (rng() - 0.5) * 28
-    if (Math.abs(z) < 3 && x > 40) continue
-    if (x > 490 && x < 640) continue
-    const y = haloHeight(x, z)
-    dummy.position.set(x, y + 0.3, z)
-    dummy.rotation.y = rng() * Math.PI
-    dummy.scale.setScalar(0.7 + rng() * 0.8)
+  layout.grass.forEach((item, index) => {
+    const y = haloHeight(item.x, item.z)
+    dummy.position.set(item.x, y + 0.3, item.z)
+    dummy.rotation.y = item.yaw
+    dummy.scale.setScalar(0.7 + item.s * 0.8)
     dummy.updateMatrix()
-    grass.setMatrixAt(n, dummy.matrix)
-    n++
-  }
-  grass.count = n
+    grass.setMatrixAt(index, dummy.matrix)
+  })
+  grass.count = layout.grass.length
   grass.instanceMatrix.needsUpdate = true
-  root.add(grass)
+  grass.frustumCulled = false
+  placeholders.add(grass)
+  return layout
 }
 
 function addRock(
-  root: THREE.Group,
+  root: THREE.Object3D,
   colliders: AABB[],
   x: number,
   z: number,
   s: number,
   solid: boolean,
+  yaw: number,
 ): void {
   const y = haloHeight(x, z)
   const geo = new THREE.DodecahedronGeometry(s, 0)
   const mesh = new THREE.Mesh(geo, ROCK)
   mesh.position.set(x, y + s * 0.45, z)
   mesh.scale.set(1.1, 0.72, 0.95)
-  mesh.rotation.y = x * 0.2
+  mesh.rotation.y = yaw
   mesh.castShadow = solid
   mesh.receiveShadow = true
   root.add(mesh)
   if (solid) addCollider(colliders, x, y + s * 0.4, z, s * 1.7, s * 1.1, s * 1.5)
 }
 
-function addTree(root: THREE.Group, x: number, z: number, s: number): void {
+function addTree(root: THREE.Object3D, x: number, z: number, s: number, yaw: number): void {
   const y = haloHeight(x, z)
   const g = new THREE.Group()
   g.position.set(x, y, z)
+  g.rotation.y = yaw
   const trunk = new THREE.Mesh(
     new THREE.CylinderGeometry(0.12 * s, 0.18 * s, 1.1 * s, 5),
     createUnscMatte({ color: 0x5a4632 }),
@@ -362,7 +509,8 @@ function buildLifeboat(root: THREE.Group, colliders: AABB[]): void {
   g.name = 'Lifeboat'
   g.position.set(x, floor, z)
   g.add(mesh(new THREE.BoxGeometry(7.2, 0.16, 3.05), OLIVE_DARK, 0, 0.1, 0))
-  g.add(mesh(new THREE.BoxGeometry(7.2, 0.18, 3.15), OLIVE, 0, 2.25, 0))
+  // Ceiling stops short of the open ramp so the valley reads from the pilot seat.
+  g.add(mesh(new THREE.BoxGeometry(5.2, 0.14, 3.05), OLIVE, -1.0, 2.55, 0))
   const stripe = mesh(
     new THREE.BoxGeometry(7.5, 0.18, 3.2),
     new THREE.MeshStandardMaterial({
@@ -393,15 +541,20 @@ function buildLifeboat(root: THREE.Group, colliders: AABB[]): void {
     0,
   )
   g.add(beacon)
-  const light = new THREE.PointLight(0xff7733, 1.4, 8)
-  light.position.set(0.4, 2.5, 0)
+  const light = new THREE.PointLight(0xff7733, 3.2, 9)
+  light.position.set(0.2, 1.7, 0)
   g.add(light)
+  // Thin hull panels self-shadow into a black wall. They still receive the sun.
+  g.traverse((obj) => {
+    const hull = obj as THREE.Mesh
+    if (hull.isMesh) hull.castShadow = false
+  })
   root.add(g)
 
   addCollider(colliders, x - 0.2, floor + 1.15, z + 1.45, 6.6, 1.7, 0.28)
   addCollider(colliders, x - 0.2, floor + 1.15, z - 1.45, 6.6, 1.7, 0.28)
   addCollider(colliders, x - 3.2, floor + 1.15, z, 0.4, 1.8, 2.7)
-  addCollider(colliders, x, floor + 2.35, z, 6.8, 0.25, 2.8)
+  addCollider(colliders, x - 1.0, floor + 2.55, z, 5.2, 0.18, 3.05)
 }
 
 function buildAutumn(root: THREE.Group): void {
@@ -446,12 +599,14 @@ function buildSmoke(root: THREE.Group): THREE.Points {
   const pts = new THREE.Points(
     geo,
     new THREE.PointsMaterial({
-      color: 0x4a4e52,
-      size: 7,
+      color: 0xb7bdc2,
+      size: 9,
+      map: smokeSprite(),
       transparent: true,
-      opacity: 0.32,
+      opacity: 0.45,
       depthWrite: false,
       sizeAttenuation: true,
+      alphaTest: 0.05,
     }),
   )
   pts.name = 'AutumnSmoke'
@@ -770,9 +925,32 @@ function mesh(
   y: number,
   z: number,
 ): THREE.Mesh {
+  if (mat instanceof THREE.MeshStandardMaterial && mat.transparent !== true) {
+    tileSurfaceUvs(geo)
+  }
   const m = new THREE.Mesh(geo, mat)
   m.position.set(x, y, z)
+  geo.computeBoundingBox()
+  const size = geo.boundingBox?.getSize(new THREE.Vector3())
+  const maxDim = size ? Math.max(size.x, size.y, size.z) : 0
+  m.castShadow = maxDim > 0.9 && mat instanceof THREE.MeshStandardMaterial && mat.transparent !== true
+  m.receiveShadow = true
   return m
+}
+
+function smokeSprite(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas')
+  canvas.width = canvas.height = 64
+  const ctx = canvas.getContext('2d')!
+  const grad = ctx.createRadialGradient(32, 32, 2, 32, 32, 32)
+  grad.addColorStop(0, 'rgba(255,255,255,0.85)')
+  grad.addColorStop(0.45, 'rgba(255,255,255,0.28)')
+  grad.addColorStop(1, 'rgba(255,255,255,0)')
+  ctx.fillStyle = grad
+  ctx.fillRect(0, 0, 64, 64)
+  const tex = new THREE.CanvasTexture(canvas)
+  tex.colorSpace = THREE.SRGBColorSpace
+  return tex
 }
 
 function addCollider(

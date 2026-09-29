@@ -217,6 +217,7 @@ export class SettingsPanel {
         ['high', 'High'],
       ], s.shadows)}
       ${toggleRow('bloom', 'Bloom', s.bloom)}
+      ${toggleRow('ssao', 'Ambient occlusion', s.ssao)}
       ${selectRow('aa', 'Anti-aliasing', [
         ['off', 'Off'],
         ['smaa', 'SMAA'],
@@ -246,18 +247,36 @@ export class SettingsPanel {
     body.querySelector('[data-field="aa"]')!.addEventListener('change', (e) => {
       this.patch({ antialiasing: (e.target as HTMLSelectElement).value as AntialiasingMode })
     })
-    for (const key of ['bloom', 'vignette', 'shafts', 'env', 'autoOpt', 'fps'] as const) {
+    for (const key of ['bloom', 'ssao', 'vignette', 'shafts', 'env', 'autoOpt', 'fps'] as const) {
       body.querySelector(`[data-field="${key}"]`)!.addEventListener('change', (e) => {
         const checked = (e.target as HTMLInputElement).checked
-        const map = {
-          bloom: 'bloom',
-          vignette: 'vignette',
-          shafts: 'lightShafts',
-          env: 'environmentReflections',
-          autoOpt: 'autoOptimize',
-          fps: 'showFps',
-        } as const
-        this.patch({ [map[key]]: checked })
+        switch (key) {
+          case 'bloom':
+            this.patch({ bloom: checked })
+            break
+          case 'ssao':
+            this.patch({ ssao: checked })
+            break
+          case 'vignette':
+            this.patch({ vignette: checked })
+            break
+          case 'shafts':
+            this.patch({ lightShafts: checked })
+            break
+          case 'env':
+            this.patch({ environmentReflections: checked })
+            break
+          case 'autoOpt':
+            this.patch({ autoOptimize: checked })
+            break
+          case 'fps':
+            this.patch({ showFps: checked })
+            break
+          default: {
+            const unknown: never = key
+            throw new Error(`Unknown settings field ${unknown}`)
+          }
+        }
       })
     }
     for (const key of ['master', 'sfx'] as const) {
@@ -295,6 +314,7 @@ export class SettingsPanel {
     setSelect('shadows', s.shadows)
     setSelect('aa', s.antialiasing)
     setCheck('bloom', s.bloom)
+    setCheck('ssao', s.ssao)
     setCheck('vignette', s.vignette)
     setCheck('shafts', s.lightShafts)
     setCheck('env', s.environmentReflections)

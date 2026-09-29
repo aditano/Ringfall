@@ -5,6 +5,7 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import {
   detectPerformanceSettings,
   downgradeSettings,
@@ -20,6 +21,7 @@ export interface RendererBundle {
   scene: THREE.Scene;
   bloomPass: UnrealBloomPass;
   bloom: UnrealBloomPass;
+  gtaoPass: GTAOPass;
   smaaPass: SMAAPass;
   vignettePass: ShaderPass;
   performance: PerformanceSettings;
@@ -60,6 +62,7 @@ interface GlPipeline {
   renderer: THREE.WebGLRenderer;
   composer: EffectComposer;
   bloomPass: UnrealBloomPass;
+  gtaoPass: GTAOPass;
   smaaPass: SMAAPass;
   vignettePass: ShaderPass;
 }
@@ -116,12 +119,12 @@ function createGlPipeline(
   renderer.setSize(width, height, false);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, perf.maxPixelRatio));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = perf.toneMappingExposure ?? 0.92;
+  renderer.toneMapping = THREE.AgXToneMapping;
+  renderer.toneMappingExposure = perf.toneMappingExposure ?? 1;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFShadowMap;
-  // Shadows are a full extra scene pass. Render them every other frame unless
-  // something explicitly asks (resize, quality change, context restore).
+  // Manual updates. The frame loop refreshes the map every frame so contact
+  // shadows stay stable on moving props.
   renderer.shadowMap.autoUpdate = false;
   renderer.shadowMap.needsUpdate = perf.shadowMapSize > 0;
   renderer.domElement.style.display = 'block';
@@ -136,9 +139,16 @@ function createGlPipeline(
 
   composer.addPass(new RenderPass(scene, camera));
 
+  const gtaoPass = new GTAOPass(scene, camera, Math.max(1, Math.floor(width * 0.5)), Math.max(1, Math.floor(height * 0.5)));
+  gtaoPass.enabled = perf.enableSSAO;
+  gtaoPass.blendIntensity = 0.5;
+  gtaoPass.updateGtaoMaterial({ radius: 0.45, scale: 1, samples: 8, thickness: 0.5, distanceFallOff: 0.75 });
+  gtaoPass.updatePdMaterial({ samples: 6, rings: 2, radius: 4 });
+  composer.addPass(gtaoPass);
+
   const bw = Math.max(1, Math.floor(width * perf.bloomScale));
   const bh = Math.max(1, Math.floor(height * perf.bloomScale));
-  const bloomPass = new UnrealBloomPass(new THREE.Vector2(bw, bh), bloomStrength, 0.75, 0.58);
+  const bloomPass = new UnrealBloomPass(new THREE.Vector2(bw, bh), bloomStrength, 0.4, 0.86);
   bloomPass.enabled = perf.enableBloom;
   composer.addPass(bloomPass);
 
@@ -152,7 +162,7 @@ function createGlPipeline(
 
   composer.addPass(new OutputPass());
 
-  return { renderer, composer, bloomPass, smaaPass, vignettePass };
+  return { renderer, composer, bloomPass, gtaoPass, smaaPass, vignettePass };
 }
 
 /**
@@ -183,7 +193,7 @@ export function createRenderer(
   camera.rotation.order = 'YXZ';
 
   const bundle = {} as RendererBundle;
-  let { renderer, composer, bloomPass, smaaPass, vignettePass } = createGlPipeline(
+  let { renderer, composer, bloomPass, gtaoPass, smaaPass, vignettePass } = createGlPipeline(
     container,
     scene,
     camera,
@@ -197,7 +207,6 @@ export function createRenderer(
   let badFrames = 0;
   let displayFps = 60;
   let pendingPerf: PerformanceSettings | null = null;
-  let shadowStep = 0;
   let contextLost = false;
   let lostAt = 0;
   let rebuilding = false;
@@ -224,16 +233,21 @@ export function createRenderer(
     resizeBloom(nextW, nextH);
     const pixelRatio = renderer.getPixelRatio();
     smaaPass.setSize(nextW * pixelRatio, nextH * pixelRatio);
+    gtaoPass.setSize(
+      Math.max(1, Math.floor(nextW * pixelRatio * 0.5)),
+      Math.max(1, Math.floor(nextH * pixelRatio * 0.5)),
+    );
   };
 
   const needsComposer = () =>
-    currentPerf.enableBloom || currentPerf.enableSMAA || currentPerf.enableVignette;
+    currentPerf.enableBloom || currentPerf.enableSMAA || currentPerf.enableVignette || currentPerf.enableSSAO;
 
   const applyPerformance = (next: PerformanceSettings) => {
     currentPerf = { ...next };
-    renderer.toneMappingExposure = currentPerf.toneMappingExposure ?? 0.92;
+    renderer.toneMappingExposure = currentPerf.toneMappingExposure ?? 1;
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, currentPerf.maxPixelRatio));
     bloomPass.enabled = currentPerf.enableBloom;
+    gtaoPass.enabled = currentPerf.enableSSAO;
     smaaPass.enabled = currentPerf.enableSMAA;
     vignettePass.enabled = currentPerf.enableVignette;
     renderer.shadowMap.needsUpdate = currentPerf.shadowMapSize > 0;
@@ -249,6 +263,7 @@ export function createRenderer(
     bundle.composer = composer;
     bundle.bloomPass = bloomPass;
     bundle.bloom = bloomPass;
+    bundle.gtaoPass = gtaoPass;
     bundle.smaaPass = smaaPass;
     bundle.vignettePass = vignettePass;
     bundle.performance = { ...currentPerf };
@@ -263,6 +278,7 @@ export function createRenderer(
     bloomScale: 0.35,
     enableSMAA: false,
     enableVignette: false,
+    enableSSAO: false,
     lightShafts: false,
     environmentMap: false,
     crosshairRayInterval: 8,
@@ -320,6 +336,7 @@ export function createRenderer(
     renderer = next.renderer;
     composer = next.composer;
     bloomPass = next.bloomPass;
+    gtaoPass = next.gtaoPass;
     smaaPass = next.smaaPass;
     vignettePass = next.vignettePass;
     bloomPass.strength = bloomStrength;
@@ -447,8 +464,8 @@ export function createRenderer(
       }
 
       if (currentPerf.shadowMapSize > 0) {
-        shadowStep = (shadowStep + 1) % 2;
-        if (shadowStep === 0) renderer.shadowMap.needsUpdate = true;
+        // Update every frame. Skipping frames made contact shadows flicker on moving props.
+        renderer.shadowMap.needsUpdate = true;
       }
 
       if (needsComposer()) {
@@ -489,6 +506,7 @@ export function createRenderer(
     scene,
     bloomPass,
     bloom: bloomPass,
+    gtaoPass,
     smaaPass,
     vignettePass,
     performance: currentPerf,

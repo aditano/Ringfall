@@ -3,7 +3,8 @@ import { createRenderer, type ContextRecovery } from '../rendering/RendererSetup
 import type { PerformanceSettings } from '../rendering/PerformanceProfile'
 import { createSkyAtmosphere } from '../world/SkyAtmosphere'
 import { setupLighting } from '../world/Lighting'
-import { buildHaloMission, haloHeight } from '../world/HaloMissionWorld'
+import { buildHaloMission, haloHeight, type HaloWorld } from '../world/HaloMissionWorld'
+import { loadRingfallAssets, type RingfallAssets } from '../rendering/AssetLibrary'
 import { HaloCampaign } from '../mission/HaloCampaign'
 import { PlayerController } from '../player/PlayerController'
 import { AudioManager } from '../audio/AudioManager'
@@ -36,7 +37,9 @@ import { HaloCEMenuWorld } from '../ui/HaloCEMenuWorld'
 import { applyEnvironmentMap } from '../rendering/EnvironmentMap'
 import { GameSettings, type UserSettings } from '../settings/GameSettings'
 
-const DEFAULT_SUBTITLE = 'Mission 02 — Halo'
+const DEFAULT_SUBTITLE = 'Wake on the ring. Reach the landing zone.'
+
+type ShotMode = 'menu' | 'lifeboat' | 'valley'
 
 export class Game {
   private running = false
@@ -46,6 +49,10 @@ export class Game {
   private readonly sky
   private readonly lighting
   private readonly envRoot: THREE.Group
+  private readonly world: HaloWorld
+  private assets: RingfallAssets | null = null
+  private roomEnv: { dispose: () => void } | null = null
+  private readonly shotMode: ShotMode | null
   private readonly campaign: HaloCampaign
   private readonly player: PlayerController
   private readonly audio = new AudioManager()
@@ -80,9 +87,17 @@ export class Game {
   private readonly touch: TouchControls
   private canvasEl: HTMLElement | null = null
   private startedChrome = false
+  private visualsReady = false
+  private shotHold = 0
+  private frozen = false
 
   constructor(container: HTMLElement) {
     this.container = container
+    this.shotMode = readShotMode()
+    if (this.shotMode) {
+      this.settings.applyPreset('ultra')
+      this.settings.set({ autoOptimize: false, resolutionScale: 1, shadows: 'medium', ssao: true })
+    }
     this.perf = this.settings.toPerformanceSettings()
     this.renderer = createRenderer(container, {
       performance: this.perf,
@@ -91,7 +106,7 @@ export class Game {
       onRecover: (info) => this.onGraphicsRecovered(info),
     })
     if (this.perf.environmentMap) {
-      applyEnvironmentMap(this.renderer.renderer, this.renderer.scene)
+      this.roomEnv = applyEnvironmentMap(this.renderer.renderer, this.renderer.scene)
     }
     this.sky = createSkyAtmosphere(this.renderer.scene)
     this.lighting = setupLighting(this.renderer.scene, {
@@ -100,6 +115,7 @@ export class Game {
     })
 
     const env = buildHaloMission(this.renderer.scene)
+    this.world = env
     this.envRoot = env.root
     this.player = new PlayerController(this.renderer.camera, this.renderer.renderer.domElement)
     this.player.setColliders(env.colliders)
@@ -195,7 +211,7 @@ export class Game {
     })
     this.menu = new MainMenu({
       parent: container,
-      title: 'HALO',
+      title: 'RINGFALL',
       subtitle: DEFAULT_SUBTITLE,
       settings: this.settings,
       onPlay: () => this.start(),
@@ -206,6 +222,8 @@ export class Game {
 
     this.applySettings()
     this.enterMenuWorld()
+    this.menu.setBusy('Loading the ring…')
+    void this.enhance()
 
     this.damage.onDamage((e) => {
       if (e.toShield > 0) this.audio.shieldHit()
@@ -263,8 +281,53 @@ export class Game {
     this.audio.setMasterVolume(user.masterVolume)
     this.audio.setSfxVolume(user.sfxVolume)
     this.fpsCounter.setVisible(user.showFps)
+    this.applyEnvironment()
     if (this.running && !this.menu.isVisible) {
       this.lighting.lightShafts.visible = this.perf.lightShafts && this.lighting.lightShaftsEnabled
+    }
+  }
+
+  private applyEnvironment(): void {
+    if (!this.assets) return
+    const scene = this.renderer.scene
+    if (this.perf.environmentMap) {
+      if (this.roomEnv) {
+        this.roomEnv.dispose()
+        this.roomEnv = null
+      }
+      scene.environment = this.assets.envMap
+      scene.environmentIntensity = this.menu.isVisible ? 0.5 : 0.28
+      return
+    }
+    scene.environment = null
+  }
+
+  private async enhance(): Promise<void> {
+    try {
+      const assets = await loadRingfallAssets(this.renderer.renderer)
+      this.assets = assets
+      this.applyEnvironment()
+      this.world.dress(assets)
+      this.ceMenu.dress(assets)
+    } catch (err) {
+      console.error('Ringfall asset library failed to load', err)
+    } finally {
+      this.menu.setBusy(null)
+      this.visualsReady = true
+      this.frameShot()
+    }
+  }
+
+  /** Headless framing for before/after shots. Pointer lock is not required. */
+  private frameShot(): void {
+    if (this.shotMode !== 'lifeboat' && this.shotMode !== 'valley') return
+    this.start()
+    if (this.shotMode === 'valley') {
+      const x = 38
+      const z = -9
+      const y = haloHeight(x, z) + 1.7
+      this.player.resetTo(new THREE.Vector3(x, y, z), -Math.PI / 2)
+      this.renderer.camera.rotation.x = -0.08
     }
   }
 
@@ -287,7 +350,8 @@ export class Game {
     this.sky.sky.visible = false
     this.lighting.lightShafts.visible = false
     this.weapons.group.visible = false
-    this.renderer.setBloom(0.35)
+    this.renderer.setBloom(0.32)
+    this.applyEnvironment()
     this.renderer.setPointerCapture(false)
   }
 
@@ -297,7 +361,8 @@ export class Game {
     this.sky.sky.visible = true
     this.lighting.lightShafts.visible = this.perf.lightShafts && this.lighting.lightShaftsEnabled
     this.weapons.group.visible = true
-    this.renderer.setBloom(this.perf.enableBloom ? 0.22 : 0)
+    this.renderer.setBloom(this.perf.enableBloom ? 0.1 : 0)
+    this.applyEnvironment()
     this.renderer.camera.fov = 75
     this.renderer.camera.updateProjectionMatrix()
     this.renderer.setPointerCapture(true)
@@ -531,6 +596,7 @@ export class Game {
   }
 
   private frame(now: number) {
+    if (this.frozen) return
     try {
       this.tick(now)
     } catch (err) {
@@ -538,7 +604,7 @@ export class Game {
       this.renderer.noteRenderFailure(err)
       this.last = performance.now()
     } finally {
-      requestAnimationFrame((t) => this.frame(t))
+      if (!this.frozen) requestAnimationFrame((t) => this.frame(t))
     }
   }
 
@@ -591,7 +657,7 @@ export class Game {
           this.player.keys.left ||
           this.player.keys.right)
 
-      this.hud.setPointerLockHint(!this.touch.isEnabled && !this.player.locked)
+      this.hud.setPointerLockHint(!this.shotMode && !this.touch.isEnabled && !this.player.locked)
       this.weapons.group.visible = !seated
       if (this.campaign.blocksWeapons) this.weapons.setFiring(false)
 
@@ -660,8 +726,23 @@ export class Game {
       this.finishHold = 0
     }
 
+    if (this.shotMode && this.running) {
+      this.hud.setFade(0)
+      this.hud.clearBanner()
+    }
     this.renderer.render(dt)
     this.fpsCounter.update(dt)
+    this.settleShot()
+  }
+
+  /** Headless captures stall if the composer keeps rendering. Hold a few frames, then stop. */
+  private settleShot(): void {
+    if (!this.shotMode || !this.visualsReady || this.frozen) return
+    this.shotHold += 1
+    const needed = this.running ? 5 : 8
+    if (this.shotHold < needed) return
+    this.frozen = true
+    this.container.dataset.shot = 'ready'
   }
 
   private hearWorldProjectiles() {
@@ -701,5 +782,17 @@ export class Game {
         this.effects.spawnPlasmaImpact(this.projHitPoint, this.upVec)
       }
     }
+  }
+}
+
+function readShotMode(): ShotMode | null {
+  const shot = new URLSearchParams(location.search).get('shot')
+  switch (shot) {
+    case 'menu':
+    case 'lifeboat':
+    case 'valley':
+      return shot
+    default:
+      return null
   }
 }

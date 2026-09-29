@@ -8,6 +8,7 @@ export interface PerformanceSettings {
   bloomScale: number
   enableSMAA: boolean
   enableVignette: boolean
+  enableSSAO: boolean
   lightShafts: boolean
   environmentMap: boolean
   crosshairRayInterval: number
@@ -30,19 +31,20 @@ export function isMac(): boolean {
   return /Macintosh|Mac OS X/i.test(UA)
 }
 
-const MAC_LOW: PerformanceSettings = {
-  tier: 'low',
+const MAC_MEDIUM: PerformanceSettings = {
+  tier: 'medium',
   maxPixelRatio: 1,
-  shadowMapSize: 512,
-  enableBloom: false,
+  shadowMapSize: 1024,
+  enableBloom: true,
   bloomScale: 0.45,
   enableSMAA: false,
-  enableVignette: false,
+  enableVignette: true,
+  enableSSAO: false,
   lightShafts: false,
-  environmentMap: false,
-  crosshairRayInterval: 8,
-  hudSyncInterval: 1 / 12,
-  toneMappingExposure: 0.88,
+  environmentMap: true,
+  crosshairRayInterval: 4,
+  hudSyncInterval: 1 / 20,
+  toneMappingExposure: 1,
 }
 
 /** Pick conservative defaults for Safari / mobile / Mac GPUs. */
@@ -52,7 +54,7 @@ export function detectPerformanceSettings(): PerformanceSettings {
   const mac = isMac()
 
   if (mac) {
-    return { ...MAC_LOW }
+    return { ...MAC_MEDIUM }
   }
 
   if (safari || mobile) {
@@ -65,11 +67,12 @@ export function detectPerformanceSettings(): PerformanceSettings {
       bloomScale: 0.45,
       enableSMAA: false,
       enableVignette: false,
+      enableSSAO: false,
       lightShafts: false,
       environmentMap: false,
       crosshairRayInterval: mobile ? 8 : 6,
       hudSyncInterval: mobile ? 1 / 12 : 1 / 15,
-      toneMappingExposure: 0.9,
+      toneMappingExposure: 0.98,
     }
   }
 
@@ -78,14 +81,15 @@ export function detectPerformanceSettings(): PerformanceSettings {
     maxPixelRatio: 1.35,
     shadowMapSize: 2048,
     enableBloom: true,
-    bloomScale: 0.55,
+    bloomScale: 0.5,
     enableSMAA: true,
     enableVignette: true,
+    enableSSAO: true,
     lightShafts: true,
     environmentMap: true,
     crosshairRayInterval: 2,
     hudSyncInterval: 1 / 30,
-    toneMappingExposure: 0.95,
+    toneMappingExposure: 1,
   }
 }
 
@@ -99,10 +103,11 @@ export function downgradeSettings(current: PerformanceSettings): PerformanceSett
       shadowMapSize: 1024,
       enableSMAA: false,
       enableBloom: true,
+      enableSSAO: false,
       bloomScale: 0.45,
       lightShafts: false,
       crosshairRayInterval: 4,
-      toneMappingExposure: 0.92,
+      toneMappingExposure: 0.98,
     }
   }
   if (current.tier === 'medium') {
@@ -114,6 +119,7 @@ export function downgradeSettings(current: PerformanceSettings): PerformanceSett
       enableBloom: false,
       enableSMAA: false,
       enableVignette: false,
+      enableSSAO: false,
       lightShafts: false,
       environmentMap: false,
       crosshairRayInterval: 8,

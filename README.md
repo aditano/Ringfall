@@ -1,8 +1,8 @@
-# Halo
+# Ringfall
 
-A first-person recreation of the Halo: Combat Evolved mission **Halo**, built in Three.js.
+A first-person mission on a ringworld, built in the browser with Three.js. You wake in a lifeboat, cross the valley, take a Warthog through a Forerunner installation, and reach the landing zone.
 
-You wake in a lifeboat on the ring, fight through the valley with a squad of marines, take a Warthog, cross a Forerunner installation, and board Foehammer's Pelican.
+Play the deployed build at [aditano.github.io/Ringfall](https://aditano.github.io/Ringfall/).
 
 ## Run
 
@@ -10,6 +10,8 @@ You wake in a lifeboat on the ring, fight through the valley with a squad of mar
 npm install
 npm run dev
 ```
+
+`npm run build` emits `dist/`. GitHub Pages deploys that folder on every push to `main` (see `.github/workflows/pages.yml`). Vite's `base` is `./`, so the project site resolves scripts and CC0 assets correctly.
 
 ## Controls
 
@@ -29,8 +31,13 @@ npm run dev
 | Space | Jump |
 | C / Ctrl | Crouch |
 
-## Stack
+Settings (quality preset, bloom, ambient occlusion, shadows, SMAA, vignette, god rays, reflections) live on the title screen and are saved in this browser.
 
-- Vite + TypeScript + Three.js
-- PBR + environment reflections, bloom / SMAA, ACES tonemapping
-- Positional HRTF audio + dynamic combat music
+## Look
+
+- AgX tone mapping, sRGB output, and a Poly Haven HDRI for image-based lighting
+- Warm key light with soft shadows, cool fill, and hemisphere bounce
+- Bloom, ground-truth ambient occlusion, SMAA, vignette, and exponential fog
+- CC0 terrain, rocks, trees, crates, and pickups from Poly Haven (see [CREDITS.md](CREDITS.md))
+
+Low and medium presets turn ambient occlusion off. Auto-optimize steps the stack down if the frame rate stays under 50.
