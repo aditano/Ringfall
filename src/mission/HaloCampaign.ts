@@ -590,7 +590,9 @@ export class HaloCampaign {
     for (let i = this.checkpointIndex + 1; i < CHECKPOINTS.length; i++) {
       const cp = CHECKPOINTS[i]!
       if (px < cp.at) break
-      if (cp.requires && !this.encounters.find((e) => e.def.id === cp.requires)?.cleared) continue
+      // Gated checkpoints must stop advancement — continue used to skip
+      // requires and arm later ungated checkpoints (e.g. hog while contact open).
+      if (cp.requires && !this.encounters.find((e) => e.def.id === cp.requires)?.cleared) break
       this.checkpointIndex = i
     }
   }
