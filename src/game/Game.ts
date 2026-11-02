@@ -4,6 +4,7 @@ import type { PerformanceSettings } from '../rendering/PerformanceProfile'
 import { createSkyAtmosphere } from '../world/SkyAtmosphere'
 import { setupLighting } from '../world/Lighting'
 import { buildHaloMission, haloHeight, type HaloWorld } from '../world/HaloMissionWorld'
+import { raycastAABBs } from '../world/Raycast'
 import { loadRingfallAssets, type RingfallAssets } from '../rendering/AssetLibrary'
 import { HaloCampaign } from '../mission/HaloCampaign'
 import { PlayerController } from '../player/PlayerController'
@@ -71,6 +72,7 @@ export class Game {
   private readonly spawnPos = new THREE.Vector3(0, 1.7, 22)
   private readonly projCenter = new THREE.Vector3()
   private readonly projHitPoint = new THREE.Vector3()
+  private readonly projDir = new THREE.Vector3()
   private readonly upVec = new THREE.Vector3(0, 1, 0)
   private readonly seatPos = new THREE.Vector3()
   private spawnYaw = Math.PI
@@ -755,8 +757,24 @@ export class Game {
 
   private resolveProjectileHits() {
     const playerPos = this.player.position
+    const colliders = this.world.colliders
     for (const p of this.projectiles.projectiles) {
       if (!p.alive) continue
+
+      // Stop bolts on cover / walls before entity proximity checks.
+      this.projDir.subVectors(p.mesh.position, p.lastPosition)
+      const travel = this.projDir.length()
+      if (travel > 1e-6) {
+        this.projDir.multiplyScalar(1 / travel)
+        const wallT = raycastAABBs(p.lastPosition, this.projDir, travel + p.radius, colliders)
+        if (wallT <= travel + p.radius) {
+          this.projHitPoint.copy(p.lastPosition).addScaledVector(this.projDir, wallT)
+          p.alive = false
+          this.effects.spawnPlasmaImpact(this.projHitPoint, this.upVec)
+          continue
+        }
+      }
+
       if (p.fromPlayer) {
         for (const e of this.enemies.enemies) {
           if (!e.alive) continue
