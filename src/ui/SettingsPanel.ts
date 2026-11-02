@@ -144,8 +144,8 @@ export class SettingsPanel {
     this.root.className = 'rf-settings-overlay'
     this.root.setAttribute('aria-hidden', 'true')
     this.root.innerHTML = `
-      <div class="rf-settings-card" role="dialog" aria-label="Settings">
-        <h2>SETTINGS</h2>
+      <div class="rf-settings-card" role="dialog" aria-modal="true" aria-labelledby="rf-settings-title">
+        <h2 id="rf-settings-title">SETTINGS</h2>
         <p class="rf-settings-sub">Changes apply immediately. Saved to this browser.</p>
         <div class="rf-settings-body"></div>
         <div class="rf-settings-actions">

@@ -184,19 +184,19 @@ export class TouchControls {
     this.root.className = 'rf-touch rf-hidden'
     this.root.innerHTML = `
       <div class="rf-look" aria-hidden="true"></div>
-      <div class="rf-stick" aria-label="Move">
+      <div class="rf-stick" role="group" aria-label="Move">
         <div class="rf-stick-knob"></div>
       </div>
-      <button type="button" class="rf-pad rf-pad-jump">Jump</button>
-      <button type="button" class="rf-pad rf-pad-aim">Aim</button>
-      <button type="button" class="rf-pad rf-pad-fire">Fire</button>
-      <div class="rf-actions">
-        <button type="button" data-act="use">Use</button>
-        <button type="button" data-act="turret">Gun</button>
-        <button type="button" data-act="reload">Rld</button>
-        <button type="button" data-act="grenade">Frag</button>
-        <button type="button" data-act="swap">Swap</button>
-        <button type="button" data-act="pause">Menu</button>
+      <button type="button" class="rf-pad rf-pad-jump" aria-label="Jump">Jump</button>
+      <button type="button" class="rf-pad rf-pad-aim" aria-label="Aim">Aim</button>
+      <button type="button" class="rf-pad rf-pad-fire" aria-label="Fire">Fire</button>
+      <div class="rf-actions" role="group" aria-label="Actions">
+        <button type="button" data-act="use" aria-label="Use">Use</button>
+        <button type="button" data-act="turret" aria-label="Turret">Gun</button>
+        <button type="button" data-act="reload" aria-label="Reload">Rld</button>
+        <button type="button" data-act="grenade" aria-label="Grenade">Frag</button>
+        <button type="button" data-act="swap" aria-label="Swap weapon">Swap</button>
+        <button type="button" data-act="pause" aria-label="Pause menu">Menu</button>
       </div>
     `
     parent.appendChild(this.root)

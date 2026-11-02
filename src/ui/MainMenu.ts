@@ -232,13 +232,14 @@ export class MainMenu {
     this.root.className = 'rf-menu'
     this.root.dataset.state = 'ready'
     this.root.setAttribute('role', 'dialog')
-    this.root.setAttribute('aria-label', 'Main menu')
+    this.root.setAttribute('aria-modal', 'true')
+    this.root.setAttribute('aria-labelledby', 'rf-menu-title')
 
     this.root.innerHTML = `
       <div class="rf-menu-bg"></div>
       <div class="rf-menu-panel">
         <div class="rf-menu-eyebrow">Ringworld</div>
-        <h1 class="rf-menu-title">${escapeHtml(title)}</h1>
+        <h1 id="rf-menu-title" class="rf-menu-title">${escapeHtml(title)}</h1>
         <p class="rf-menu-sub">${escapeHtml(subtitle)}</p>
         <p class="rf-menu-status" hidden></p>
         <div class="rf-menu-actions">
