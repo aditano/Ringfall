@@ -9,7 +9,7 @@ import type { EffectsManager } from '../vfx/EffectsManager'
 import type { ProjectileManager } from '../weapons/Projectile'
 import type { WeaponId, WeaponSystem } from '../weapons/WeaponSystem'
 import { Warthog } from '../vehicles/Warthog'
-import { haloHeight, type HaloWorld, type WorldPickup } from '../world/HaloMissionWorld'
+import { driveSurface, haloHeight, type HaloWorld, type WorldPickup } from '../world/HaloMissionWorld'
 import { raycastAABBs } from '../world/Raycast'
 import {
   CAVE_MOUTH,
@@ -836,10 +836,28 @@ export class HaloCampaign {
     this.gunning = false
     this.hog.forwardWorld(this.v)
     const side = this.v2.set(this.v.z, 0, -this.v.x).normalize()
-    const x = this.hog.group.position.x + side.x * 2.4
-    const z = this.hog.group.position.z + side.z * 2.4
-    const y = haloHeight(x, z) + this.player.eyeHeight
-    this.player.position.set(x, y, z)
+    // Prefer a side exit, then the opposite side, then forward, then the hog footprint.
+    // Side offsets on the light bridge land in the pit (haloHeight -8) and used to kill the player.
+    const hx = this.hog.group.position.x
+    const hz = this.hog.group.position.z
+    const candidates: Array<[number, number]> = [
+      [hx + side.x * 2.4, hz + side.z * 2.4],
+      [hx - side.x * 2.4, hz - side.z * 2.4],
+      [hx + this.v.x * 3.2, hz + this.v.z * 3.2],
+      [hx, hz],
+    ]
+    let x = hx
+    let z = hz
+    let ground = driveSurface(hx, hz)
+    for (const [cx, cz] of candidates) {
+      const y = driveSurface(cx, cz)
+      if (y < -1) continue
+      x = cx
+      z = cz
+      ground = y
+      break
+    }
+    this.player.position.set(x, ground + this.player.eyeHeight, z)
     this.player.velocity.set(0, 0, 0)
     this.camera.position.copy(this.player.position)
     this.unseat(true)
@@ -876,9 +894,15 @@ export class HaloCampaign {
       m.following = follow && m.alive && this.cleared('marines')
       const s = spot[i] ?? spot[0]!
       i++
-      const x = this.hog.group.position.x + s.x
-      const z = this.hog.group.position.z + s.z
-      m.group.position.set(x, haloHeight(x, z), z)
+      let x = this.hog.group.position.x + s.x
+      let z = this.hog.group.position.z + s.z
+      let ground = driveSurface(x, z)
+      if (ground < -1) {
+        x = this.hog.group.position.x
+        z = this.hog.group.position.z
+        ground = driveSurface(x, z)
+      }
+      m.group.position.set(x, ground, z)
     }
   }
 
