@@ -11,6 +11,8 @@ export class Projectile {
   readonly mesh: THREE.Group
   readonly core: THREE.Mesh
   readonly velocity = new THREE.Vector3()
+  /** Position at the start of the last update step (for cover collision). */
+  readonly lastPosition = new THREE.Vector3()
   life = 2.5
   damage = 18
   radius = 0.15
@@ -47,6 +49,7 @@ export class Projectile {
 
   activate(position: THREE.Vector3, direction: THREE.Vector3, speed: number, color: number): void {
     this.mesh.position.copy(position)
+    this.lastPosition.copy(position)
     this.velocity.copy(direction).normalize().multiplyScalar(speed)
     this.life = 2.5
     this.damage = 18
@@ -82,6 +85,7 @@ export class Projectile {
   update(dt: number): void {
     if (!this.alive) return
     this.age += dt
+    this.lastPosition.copy(this.mesh.position)
     this.mesh.position.addScaledVector(this.velocity, dt)
     this.life -= dt
     if (this.life <= 0) {
